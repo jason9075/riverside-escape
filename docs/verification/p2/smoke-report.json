@@ -1,0 +1,247 @@
+{
+  "fixed_rtt_ms": 100,
+  "one_way_delay_ms": 50,
+  "dual_welcome": {
+    "rider": {
+      "player_id": 6,
+      "seat": "rider",
+      "solo_mode": false
+    },
+    "gunner": {
+      "player_id": 7,
+      "seat": "gunner",
+      "solo_mode": false
+    }
+  },
+  "ready_driver": "CDP dispatched held R keypresses to each WASM page",
+  "dual_running": {
+    "rider_tick": 31182,
+    "gunner_tick": 31182
+  },
+  "warning": {
+    "tick": 31362,
+    "rider": {
+      "attack_id": 3,
+      "impact_position": {
+        "x": 0,
+        "y": 0,
+        "z": 2
+      },
+      "impact_tick": 31528,
+      "blast_radius_m": 2.5
+    },
+    "gunner": {
+      "attack_id": 3,
+      "impact_position": {
+        "x": 0,
+        "y": 0,
+        "z": 2
+      },
+      "impact_tick": 31528,
+      "blast_radius_m": 2.5
+    }
+  },
+  "explosion": {
+    "tick": 31530,
+    "rider": {
+      "event_id": 9,
+      "attack_id": 3,
+      "tick": 31528,
+      "position": {
+        "x": 0,
+        "y": 0,
+        "z": 2
+      },
+      "kind": {
+        "type": "rocket_exploded",
+        "hit": true,
+        "hit_count": 1
+      }
+    },
+    "gunner": {
+      "event_id": 9,
+      "attack_id": 3,
+      "tick": 31528,
+      "position": {
+        "x": 0,
+        "y": 0,
+        "z": 2
+      },
+      "kind": {
+        "type": "rocket_exploded",
+        "hit": true,
+        "hit_count": 1
+      }
+    }
+  },
+  "events_for_attack": {
+    "rider": [
+      {
+        "event_id": 7,
+        "attack_id": 3,
+        "tick": 31360,
+        "position": {
+          "x": 0,
+          "y": 0,
+          "z": 2
+        },
+        "kind": {
+          "type": "rocket_warning"
+        }
+      },
+      {
+        "event_id": 8,
+        "attack_id": 3,
+        "tick": 31480,
+        "position": {
+          "x": 0,
+          "y": 7.45,
+          "z": 14.18
+        },
+        "kind": {
+          "type": "rocket_launched"
+        }
+      },
+      {
+        "event_id": 9,
+        "attack_id": 3,
+        "tick": 31528,
+        "position": {
+          "x": 0,
+          "y": 0,
+          "z": 2
+        },
+        "kind": {
+          "type": "rocket_exploded",
+          "hit": true,
+          "hit_count": 1
+        }
+      }
+    ],
+    "gunner": [
+      {
+        "event_id": 7,
+        "attack_id": 3,
+        "tick": 31360,
+        "position": {
+          "x": 0,
+          "y": 0,
+          "z": 2
+        },
+        "kind": {
+          "type": "rocket_warning"
+        }
+      },
+      {
+        "event_id": 8,
+        "attack_id": 3,
+        "tick": 31480,
+        "position": {
+          "x": 0,
+          "y": 7.45,
+          "z": 14.18
+        },
+        "kind": {
+          "type": "rocket_launched"
+        }
+      },
+      {
+        "event_id": 9,
+        "attack_id": 3,
+        "tick": 31528,
+        "position": {
+          "x": 0,
+          "y": 0,
+          "z": 2
+        },
+        "kind": {
+          "type": "rocket_exploded",
+          "hit": true,
+          "hit_count": 1
+        }
+      }
+    ]
+  },
+  "p1_regression": {
+    "tick": 31212,
+    "rider_ack": 10,
+    "rider_speed": 0,
+    "gunner_speed": 0
+  },
+  "dual_ids": {
+    "rider": 6,
+    "gunner": 7
+  },
+  "client_errors": {
+    "rider": [],
+    "gunner": [],
+    "rider_console_errors": [],
+    "gunner_console_errors": [],
+    "solo": []
+  },
+  "canvas_debug": {
+    "rider": {
+      "href": "http://127.0.0.1:8080/?server=ws%3A%2F%2F127.0.0.1%3A3102%2Fws",
+      "ready": "complete",
+      "focused": true,
+      "visibility": "visible",
+      "canvas": {
+        "width": 1280,
+        "height": 657,
+        "rect": {
+          "x": 0,
+          "y": 0,
+          "width": 1280,
+          "height": 657
+        },
+        "webgl2": true,
+        "version": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+      }
+    },
+    "gunner": {
+      "href": "http://127.0.0.1:8080/?server=ws%3A%2F%2F127.0.0.1%3A3102%2Fws",
+      "ready": "complete",
+      "focused": true,
+      "visibility": "visible",
+      "canvas": {
+        "width": 1280,
+        "height": 657,
+        "rect": {
+          "x": 0,
+          "y": 0,
+          "width": 1280,
+          "height": 657
+        },
+        "webgl2": true,
+        "version": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+      }
+    },
+    "solo": {
+      "href": "http://127.0.0.1:8080/?solo=1&server=ws%3A%2F%2F127.0.0.1%3A3102%2Fws",
+      "ready": "complete",
+      "focused": true,
+      "visibility": "visible",
+      "canvas": {
+        "width": 1280,
+        "height": 657,
+        "rect": {
+          "x": 0,
+          "y": 0,
+          "width": 1280,
+          "height": 657
+        },
+        "webgl2": true,
+        "version": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+      }
+    }
+  },
+  "solo": {
+    "welcome": {
+      "player_id": 8,
+      "seat": "rider",
+      "solo_mode": true
+    },
+    "final_seat": "gunner",
+    "phase": "running"
+  }
+}

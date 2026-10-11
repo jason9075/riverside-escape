@@ -1,0 +1,14 @@
+[package]
+name = "riverside-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+axum.workspace = true
+bevy_app.workspace = true
+bevy_ecs.workspace = true
+futures-util.workspace = true
+riverside-common = { path = "../common" }
+serde_json.workspace = true
+tokio.workspace = true

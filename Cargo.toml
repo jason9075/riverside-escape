@@ -1,0 +1,26 @@
+[workspace]
+members = ["crates/common", "crates/client", "crates/server"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+
+[workspace.dependencies]
+bevy = { version = "=0.19.0", features = ["webgl2"] }
+bevy_app = "=0.19.0"
+bevy_ecs = "=0.19.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+axum = { version = "0.8", features = ["ws"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time", "net"] }
+futures-util = "0.3"
+
+# Bevy's unoptimized dependency graph produces an impractically large WASM development build.
+[profile.dev]
+debug = 0
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3

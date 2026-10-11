@@ -1,0 +1,107 @@
+[
+  {
+    "model": "bicycle",
+    "sha256": "89949f223884fb44e2af986121ad10b675e4b671a0a38bfe60d3c3f0f47dc1d9",
+    "triangles": 3608,
+    "nodes_checked": 7,
+    "round_trip": "passed"
+  },
+  {
+    "model": "rider",
+    "sha256": "e62f125baf2fbaa178a4850491a9771e25fc1156a820b3273e68b90b92e6ef30",
+    "triangles": 1420,
+    "nodes_checked": 11,
+    "round_trip": "passed"
+  },
+  {
+    "model": "gunner",
+    "sha256": "9d2e548ca159feb7d21529a3ce534bd3f74db53b91bcc79bcdffe24da3d37e08",
+    "triangles": 1420,
+    "nodes_checked": 12,
+    "round_trip": "passed"
+  },
+  {
+    "model": "launcher",
+    "sha256": "c2bd65cf37224eaa764c2f76ba26aa32302bd1d0e9a139ea2fe8954fe249c049",
+    "triangles": 1000,
+    "nodes_checked": 2,
+    "round_trip": "passed"
+  },
+  {
+    "model": "missile",
+    "sha256": "63c5b75326d7bde26ba1243868a32c75f11937cfeddf3bb68cfc148f0fdbf9d8",
+    "triangles": 156,
+    "nodes_checked": 1,
+    "round_trip": "passed"
+  },
+  {
+    "model": "helicopter",
+    "sha256": "e94c50a3b15aea72315edfecb697caa93cabac8f039c7078562df8e7dfdf6069",
+    "triangles": 2248,
+    "nodes_checked": 16,
+    "round_trip": "passed"
+  },
+  {
+    "model": "traffic_cone",
+    "sha256": "fcc1850db0075b0499e0c1f3473a5a3d5b44ec444b1766047aa55696c3699365",
+    "triangles": 176,
+    "nodes_checked": 0,
+    "round_trip": "passed"
+  },
+  {
+    "model": "bollard",
+    "sha256": "f3dcf0a69df80b8ea5ee07adcee0b9ff373da46b0e43d0e3d75d70772576429a",
+    "triangles": 228,
+    "nodes_checked": 0,
+    "round_trip": "passed"
+  },
+  {
+    "model": "concrete_barrier",
+    "sha256": "1a49480a372a99d79d953c3522852627089fc7161a488e0c168e84f45c30d2c7",
+    "triangles": 88,
+    "nodes_checked": 2,
+    "round_trip": "passed"
+  },
+  {
+    "model": "railing",
+    "sha256": "7f9649ccc04c1f6c1c3e4fd4155e5664fe6d64f987c0052bd7b71dab64fa8fec",
+    "triangles": 328,
+    "nodes_checked": 2,
+    "round_trip": "passed"
+  },
+  {
+    "model": "bridge_pier",
+    "sha256": "9d5400441db9e7d88d7d3066a35addb44d7976376a28e923edf92f3633749bc7",
+    "triangles": 168,
+    "nodes_checked": 0,
+    "round_trip": "passed"
+  },
+  {
+    "model": "riverside_tree",
+    "sha256": "63b82d6874fc4ac7b6a775f0dce4d9c92f0f8cd474383b5784d176d268af838d",
+    "triangles": 84,
+    "nodes_checked": 0,
+    "round_trip": "passed"
+  },
+  {
+    "model": "riverside_lamp",
+    "sha256": "9fa66b55e136a6c586ae06086b281b6648884ffda15d548b604d6265a73e38ee",
+    "triangles": 164,
+    "nodes_checked": 0,
+    "round_trip": "passed"
+  },
+  {
+    "model": "road_straight",
+    "sha256": "987dce687d57e77dc437f2b10bc9cace4c7ecdaac4681e6b8a93c0e6df0eb98c",
+    "triangles": 108,
+    "nodes_checked": 2,
+    "round_trip": "passed"
+  },
+  {
+    "model": "road_curve",
+    "sha256": "b803c48cb1589c9072f479456c0fb8b24b11e569456bef33ed006a82e4f0648d",
+    "triangles": 268,
+    "nodes_checked": 2,
+    "round_trip": "passed"
+  }
+]

@@ -1,0 +1,1162 @@
+{
+  "schema_version": 1,
+  "units": "metres",
+  "up": "+Y",
+  "forward": "-Z",
+  "format": "glTF 2.0 / GLB",
+  "materials": "Opaque PBR factors; no textures or external resources",
+  "source": "art/riverside_models.blend",
+  "node_transform_space": "asset-local, glTF axes",
+  "models": [
+    {
+      "id": "bicycle",
+      "file": "bicycle.glb",
+      "scene": "Scene0",
+      "bytes": 234140,
+      "triangles": 3608,
+      "mesh_objects": 18,
+      "bounds_min": [
+        -0.34,
+        -0.1422,
+        -1.299
+      ],
+      "bounds_max": [
+        0.34,
+        1.3843,
+        1.429
+      ],
+      "nodes": {
+        "bicycle.Steering": {
+          "position": [
+            0.0,
+            0.96,
+            -0.68
+          ],
+          "rotation_xyzw": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "parent": "bicycle.Root",
+          "socket": false
+        },
+        "bicycle.WheelRear": {
+          "position": [
+            0.0,
+            0.35,
+            1.08
+          ],
+          "rotation_xyzw": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "parent": "bicycle.Root",
+          "socket": false
+        },
+        "bicycle.WheelFront": {
+          "position": [
+            0.0,
+            0.35,
+            -0.95
+          ],
+          "rotation_xyzw": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "parent": "bicycle.Steering",
+          "socket": false
+        },
+        "bicycle.Crank": {
+          "position": [
+            0.0,
+            0.35,
+            0.1
+          ],
+          "rotation_xyzw": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "parent": "bicycle.Root",
+          "socket": false
+        },
+        "bicycle.Seat_Rider": {
+          "position": [
+            0.0,
+            1.08,
+            0.23
+          ],
+          "rotation_xyzw": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "parent": "bicycle.Root",
+          "socket": true
+        },
+        "bicycle.Seat_Gunner": {
+          "position": [
+            0.0,
+            1.12,
+            0.94
+          ],
+          "rotation_xyzw": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "parent": "bicycle.Root",
+          "socket": true
+        },
+        "bicycle.Camera_Rider": {
+          "position": [
+            0.0,
+            1.8,
+            0.23
+          ],
+          "rotation_xyzw": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "parent": "bicycle.Root",
+          "socket": true
+        }
+      }
+    },
+    {
+      "id": "rider",
+      "file": "rider.glb",
+      "scene": "Scene0",
+      "bytes": 120148,
+      "triangles": 1420,
+      "mesh_objects": 21,
+      "bounds_min": [
+        -0.342,
+        -0.8625,
+        -0.732
+      ],
+      "bounds_max": [
+        0.342,
+        0.905,
+        0.19
+      ],
+      "nodes": {
+        "rider.Torso": {
+          "position": [
+            0.0,
+            0.13,
+            -0.0
+          ],
+          "rotation_xyzw": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "parent": "rider.Root",
+          "socket": false
+        },
+        "rider.Head": {
+          "position": [
+            0.0,
+            0.61,
+            -0.04
+          ],
+          "rotation_xyzw": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "parent": "rider.Torso",
+          "socket": false
+        },
+        "rider.Shoulder_L": {
+          "position": [
+            -0.17,
+            0.47,
+            -0.07
+          ],
+          "rotation_xyzw": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "parent": "rider.Torso",
+          "socket": false
+        },
+        "rider.Elbow_-1": {
+          "position": [
+            -0.225,
+            0.29,
+            -0.31
+          ],
+          "rotation_xyzw": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "parent": "rider.Shoulder_L",
+          "socket": false
+        },
+        "rider.Hip_-1": {
+          "position": [
+            -0.13,
+            0.0,
+            -0.025
+          ],
+          "rotation_xyzw": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "parent": "rider.Root",
+          "socket": false
+        },
+        "rider.Knee_-1": {
+          "position": [
+            -0.175,
+            -0.25,
+            -0.315
+          ],
+          "rotation_xyzw": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "parent": "rider.Hip_-1",
+          "socket": false
+        },
+        "rider.Shoulder_R": {
+          "position": [
+            0.17,
+            0.47,
+            -0.07
+          ],
+          "rotation_xyzw": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "parent": "rider.Torso",
+          "socket": false
+        },
+        "rider.Elbow_1": {
+          "position": [
+            0.225,
+            0.29,
+            -0.31
+          ],
+          "rotation_xyzw": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "parent": "rider.Shoulder_R",
+          "socket": false
+        },
+        "rider.Hip_1": {
+          "position": [
+            0.13,
+            0.0,
+            -0.025
+          ],
+          "rotation_xyzw": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "parent": "rider.Root",
+          "socket": false
+        },
+        "rider.Knee_1": {
+          "position": [
+            0.175,
+            -0.25,
+            -0.315
+          ],
+          "rotation_xyzw": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "parent": "rider.Hip_1",
+          "socket": false
+        },
+        "rider.Camera_Aim": {
+          "position": [
+            0.0,
+            0.72,
+            -0.09
+          ],
+          "rotation_xyzw": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "parent": "rider.Root",
+          "socket": true
+        }
+      }
+    },
+    {
+      "id": "gunner",
+      "file": "gunner.glb",
+      "scene": "Scene0",
+      "bytes": 118476,
+      "triangles": 1420,
+      "mesh_objects": 20,
+      "bounds_min": [
+        -0.2665,
+        -0.7925,
+        -0.562
+      ],
+      "bounds_max": [
+        0.3287,
+        0.905,
+        0.19
+      ],
+      "nodes": {
+        "gunner.Torso": {
+          "position": [
+            0.0,
+            0.13,
+            -0.0
+          ],
+          "rotation_xyzw": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "parent": "gunner.Root",
+          "socket": false
+        },
+        "gunner.Head": {
+          "position": [
+            0.0,
+            0.61,
+            -0.04
+          ],
+          "rotation_xyzw": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "parent": "gunner.Torso",
+          "socket": false
+        },
+        "gunner.Shoulder_L": {
+          "position": [
+            -0.17,
+            0.47,
+            -0.07
+          ],
+          "rotation_xyzw": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "parent": "gunner.Torso",
+          "socket": false
+        },
+        "gunner.Elbow_-1": {
+          "position": [
+            -0.02,
+            0.32,
+            -0.29
+          ],
+          "rotation_xyzw": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "parent": "gunner.Shoulder_L",
+          "socket": false
+        },
+        "gunner.Hip_-1": {
+          "position": [
+            -0.13,
+            0.0,
+            -0.025
+          ],
+          "rotation_xyzw": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "parent": "gunner.Root",
+          "socket": false
+        },
+        "gunner.Knee_-1": {
+          "position": [
+            -0.175,
+            -0.25,
+            -0.315
+          ],
+          "rotation_xyzw": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "parent": "gunner.Hip_-1",
+          "socket": false
+        },
+        "gunner.Shoulder_R": {
+          "position": [
+            0.17,
+            0.47,
+            -0.07
+          ],
+          "rotation_xyzw": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "parent": "gunner.Torso",
+          "socket": false
+        },
+        "gunner.Elbow_1": {
+          "position": [
+            0.25,
+            0.25,
+            -0.22
+          ],
+          "rotation_xyzw": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "parent": "gunner.Shoulder_R",
+          "socket": false
+        },
+        "gunner.Hip_1": {
+          "position": [
+            0.13,
+            0.0,
+            -0.025
+          ],
+          "rotation_xyzw": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "parent": "gunner.Root",
+          "socket": false
+        },
+        "gunner.Knee_1": {
+          "position": [
+            0.175,
+            -0.25,
+            -0.315
+          ],
+          "rotation_xyzw": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "parent": "gunner.Hip_1",
+          "socket": false
+        },
+        "gunner.Camera_Aim": {
+          "position": [
+            0.0,
+            0.72,
+            -0.09
+          ],
+          "rotation_xyzw": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "parent": "gunner.Root",
+          "socket": true
+        },
+        "gunner.WeaponMount": {
+          "position": [
+            0.255,
+            0.56,
+            -0.3
+          ],
+          "rotation_xyzw": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "parent": "gunner.Torso",
+          "socket": true
+        }
+      }
+    },
+    {
+      "id": "launcher",
+      "file": "launcher.glb",
+      "scene": "Scene0",
+      "bytes": 66832,
+      "triangles": 1000,
+      "mesh_objects": 4,
+      "bounds_min": [
+        -0.103,
+        -0.205,
+        -0.377
+      ],
+      "bounds_max": [
+        0.103,
+        0.1525,
+        0.34
+      ],
+      "nodes": {
+        "launcher.Muzzle": {
+          "position": [
+            0.0,
+            0.0,
+            -0.4
+          ],
+          "rotation_xyzw": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "parent": "launcher.Root",
+          "socket": true
+        },
+        "launcher.Grip.001": {
+          "position": [
+            0.0,
+            -0.18,
+            -0.04
+          ],
+          "rotation_xyzw": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "parent": "launcher.Root",
+          "socket": true
+        }
+      }
+    },
+    {
+      "id": "missile",
+      "file": "missile.glb",
+      "scene": "Scene0",
+      "bytes": 13100,
+      "triangles": 156,
+      "mesh_objects": 4,
+      "bounds_min": [
+        -0.15,
+        -0.15,
+        -0.37
+      ],
+      "bounds_max": [
+        0.15,
+        0.15,
+        0.25
+      ],
+      "nodes": {
+        "missile.Exhaust": {
+          "position": [
+            0.0,
+            0.0,
+            0.27
+          ],
+          "rotation_xyzw": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "parent": "missile.Root",
+          "socket": true
+        }
+      }
+    },
+    {
+      "id": "helicopter",
+      "file": "helicopter.glb",
+      "scene": "Scene0",
+      "bytes": 174688,
+      "triangles": 2248,
+      "mesh_objects": 27,
+      "bounds_min": [
+        -3.1924,
+        -0.0,
+        -3.0224
+      ],
+      "bounds_max": [
+        3.1924,
+        2.605,
+        4.3505
+      ],
+      "nodes": {
+        "helicopter.RocketSocket_-1": {
+          "position": [
+            -1.1,
+            0.835,
+            -0.36
+          ],
+          "rotation_xyzw": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "parent": "helicopter.Root",
+          "socket": true
+        },
+        "helicopter.RocketSocket_1": {
+          "position": [
+            1.1,
+            0.835,
+            -0.36
+          ],
+          "rotation_xyzw": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "parent": "helicopter.Root",
+          "socket": true
+        },
+        "helicopter.MainRotor": {
+          "position": [
+            0.0,
+            2.385,
+            0.17
+          ],
+          "rotation_xyzw": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "parent": "helicopter.Root",
+          "socket": false
+        },
+        "helicopter.Blade_0": {
+          "position": [
+            0.0,
+            2.385,
+            0.17
+          ],
+          "rotation_xyzw": [
+            0.0,
+            0.109778,
+            0.0,
+            0.993956
+          ],
+          "parent": "helicopter.MainRotor",
+          "socket": false
+        },
+        "helicopter.Blade_1": {
+          "position": [
+            0.0,
+            2.385,
+            0.17
+          ],
+          "rotation_xyzw": [
+            0.0,
+            0.780458,
+            0.0,
+            0.625208
+          ],
+          "parent": "helicopter.MainRotor",
+          "socket": false
+        },
+        "helicopter.Blade_2": {
+          "position": [
+            0.0,
+            2.385,
+            0.17
+          ],
+          "rotation_xyzw": [
+            0.0,
+            -0.993956,
+            0.0,
+            0.109778
+          ],
+          "parent": "helicopter.MainRotor",
+          "socket": false
+        },
+        "helicopter.Blade_3": {
+          "position": [
+            0.0,
+            2.385,
+            0.17
+          ],
+          "rotation_xyzw": [
+            0.0,
+            -0.625208,
+            0.0,
+            0.780458
+          ],
+          "parent": "helicopter.MainRotor",
+          "socket": false
+        },
+        "helicopter.TailRotor": {
+          "position": [
+            0.17,
+            2.015,
+            3.78
+          ],
+          "rotation_xyzw": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "parent": "helicopter.Root",
+          "socket": false
+        },
+        "helicopter.TailBlade_0": {
+          "position": [
+            0.17,
+            2.015,
+            3.78
+          ],
+          "rotation_xyzw": [
+            0.174108,
+            0.0,
+            0.0,
+            0.984727
+          ],
+          "parent": "helicopter.TailRotor",
+          "socket": false
+        },
+        "helicopter.TailBlade_1": {
+          "position": [
+            0.17,
+            2.015,
+            3.78
+          ],
+          "rotation_xyzw": [
+            0.81942,
+            0.0,
+            0.0,
+            0.573194
+          ],
+          "parent": "helicopter.TailRotor",
+          "socket": false
+        },
+        "helicopter.TailBlade_2": {
+          "position": [
+            0.17,
+            2.015,
+            3.78
+          ],
+          "rotation_xyzw": [
+            -0.984727,
+            0.0,
+            0.0,
+            0.174108
+          ],
+          "parent": "helicopter.TailRotor",
+          "socket": false
+        },
+        "helicopter.TailBlade_3": {
+          "position": [
+            0.17,
+            2.015,
+            3.78
+          ],
+          "rotation_xyzw": [
+            -0.573194,
+            0.0,
+            0.0,
+            0.81942
+          ],
+          "parent": "helicopter.TailRotor",
+          "socket": false
+        },
+        "helicopter.TurretYaw": {
+          "position": [
+            0.0,
+            0.515,
+            -1.2
+          ],
+          "rotation_xyzw": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "parent": "helicopter.Root",
+          "socket": false
+        },
+        "helicopter.TurretPitch": {
+          "position": [
+            0.0,
+            0.515,
+            -1.2
+          ],
+          "rotation_xyzw": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "parent": "helicopter.TurretYaw",
+          "socket": false
+        },
+        "helicopter.Muzzle": {
+          "position": [
+            0.0,
+            0.515,
+            -1.82
+          ],
+          "rotation_xyzw": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "parent": "helicopter.TurretPitch",
+          "socket": true
+        },
+        "helicopter.TargetLock": {
+          "position": [
+            0.0,
+            1.275,
+            -0.15
+          ],
+          "rotation_xyzw": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "parent": "helicopter.Root",
+          "socket": true
+        }
+      }
+    },
+    {
+      "id": "traffic_cone",
+      "file": "traffic_cone.glb",
+      "scene": "Scene0",
+      "bytes": 14660,
+      "triangles": 176,
+      "mesh_objects": 3,
+      "bounds_min": [
+        -0.2,
+        0.0,
+        -0.2
+      ],
+      "bounds_max": [
+        0.2,
+        0.53,
+        0.2
+      ],
+      "nodes": {}
+    },
+    {
+      "id": "bollard",
+      "file": "bollard.glb",
+      "scene": "Scene0",
+      "bytes": 19592,
+      "triangles": 228,
+      "mesh_objects": 4,
+      "bounds_min": [
+        -0.1236,
+        0.0,
+        -0.13
+      ],
+      "bounds_max": [
+        0.1236,
+        0.82,
+        0.13
+      ],
+      "nodes": {}
+    },
+    {
+      "id": "concrete_barrier",
+      "file": "concrete_barrier.glb",
+      "scene": "Scene0",
+      "bytes": 7996,
+      "triangles": 88,
+      "mesh_objects": 2,
+      "bounds_min": [
+        -1.0,
+        0.0,
+        -0.3
+      ],
+      "bounds_max": [
+        1.0,
+        0.85,
+        0.3
+      ],
+      "nodes": {
+        "concrete_barrier.Connector_L": {
+          "position": [
+            -1.0,
+            0.0,
+            -0.0
+          ],
+          "rotation_xyzw": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "parent": "concrete_barrier.Root",
+          "socket": true
+        },
+        "concrete_barrier.Connector_R": {
+          "position": [
+            1.0,
+            0.0,
+            -0.0
+          ],
+          "rotation_xyzw": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "parent": "concrete_barrier.Root",
+          "socket": true
+        }
+      }
+    },
+    {
+      "id": "railing",
+      "file": "railing.glb",
+      "scene": "Scene0",
+      "bytes": 22704,
+      "triangles": 328,
+      "mesh_objects": 2,
+      "bounds_min": [
+        -2.08,
+        0.0,
+        -0.08
+      ],
+      "bounds_max": [
+        2.08,
+        1.1,
+        0.08
+      ],
+      "nodes": {
+        "railing.Connector_L": {
+          "position": [
+            -2.0,
+            0.0,
+            -0.0
+          ],
+          "rotation_xyzw": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "parent": "railing.Root",
+          "socket": true
+        },
+        "railing.Connector_R": {
+          "position": [
+            2.0,
+            0.0,
+            -0.0
+          ],
+          "rotation_xyzw": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "parent": "railing.Root",
+          "socket": true
+        }
+      }
+    },
+    {
+      "id": "bridge_pier",
+      "file": "bridge_pier.glb",
+      "scene": "Scene0",
+      "bytes": 15036,
+      "triangles": 168,
+      "mesh_objects": 2,
+      "bounds_min": [
+        -2.1,
+        0.0,
+        -0.85
+      ],
+      "bounds_max": [
+        2.1,
+        5.725,
+        0.85
+      ],
+      "nodes": {}
+    },
+    {
+      "id": "riverside_tree",
+      "file": "riverside_tree.glb",
+      "scene": "Scene0",
+      "bytes": 11664,
+      "triangles": 84,
+      "mesh_objects": 4,
+      "bounds_min": [
+        -1.3208,
+        0.0,
+        -0.7996
+      ],
+      "bounds_max": [
+        1.2977,
+        3.85,
+        0.7996
+      ],
+      "nodes": {}
+    },
+    {
+      "id": "riverside_lamp",
+      "file": "riverside_lamp.glb",
+      "scene": "Scene0",
+      "bytes": 15280,
+      "triangles": 164,
+      "mesh_objects": 4,
+      "bounds_min": [
+        -0.17,
+        0.0,
+        -1.01
+      ],
+      "bounds_max": [
+        0.17,
+        3.982,
+        0.16
+      ],
+      "nodes": {}
+    },
+    {
+      "id": "road_straight",
+      "file": "road_straight.glb",
+      "scene": "Scene0",
+      "bytes": 11884,
+      "triangles": 108,
+      "mesh_objects": 4,
+      "bounds_min": [
+        -2.3,
+        -0.2,
+        -8.0
+      ],
+      "bounds_max": [
+        2.3,
+        0.018,
+        -0.0
+      ],
+      "nodes": {
+        "road_straight.Entry": {
+          "position": [
+            0.0,
+            0.0,
+            -0.0
+          ],
+          "rotation_xyzw": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "parent": "road_straight.Root",
+          "socket": true
+        },
+        "road_straight.Exit": {
+          "position": [
+            0.0,
+            0.0,
+            -8.0
+          ],
+          "rotation_xyzw": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "parent": "road_straight.Root",
+          "socket": true
+        }
+      }
+    },
+    {
+      "id": "road_curve",
+      "file": "road_curve.glb",
+      "scene": "Scene0",
+      "bytes": 13732,
+      "triangles": 268,
+      "mesh_objects": 4,
+      "bounds_min": [
+        -2.3,
+        -0.2,
+        -6.15
+      ],
+      "bounds_max": [
+        3.3316,
+        0.014,
+        -0.0
+      ],
+      "nodes": {
+        "road_curve.Entry": {
+          "position": [
+            0.0,
+            0.0,
+            -0.0
+          ],
+          "rotation_xyzw": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "parent": "road_curve.Root",
+          "socket": true
+        },
+        "road_curve.Exit": {
+          "position": [
+            1.33975,
+            0.0,
+            -5.0
+          ],
+          "rotation_xyzw": [
+            0.0,
+            -0.258819,
+            0.0,
+            0.965926
+          ],
+          "parent": "road_curve.Root",
+          "socket": true
+        }
+      }
+    }
+  ]
+}
