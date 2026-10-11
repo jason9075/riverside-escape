@@ -8,6 +8,7 @@
 
 - 本機 `master` 起初沒有任何 commit，因此無法可信地重建 P0、P1、P2 各自的歷史提交；沒有捏造過往提交。
 - 初始基線 commit 以已驗證的遠端 P2 checkout 為程式碼來源，納入 P0／P1／P2 原型、可重現驗證紀錄／截圖、最新 `PRODUCT_PLAN.md` 與本狀態文件，作為一個可檢視的目前狀態快照；未驗證中的 P3 程式不納入基線。
+- 初始基線 commit：`5997679` (`chore: establish validated P0-P2 project baseline`)。
 - 後續以可獨立驗證的功能切片提交；每項功能通過必要驗證並建立 commit 後，才標為已交付。Git 主 checkout 是本機，遠端工作副本不含 `.git/`。
 
 ## 已交付
