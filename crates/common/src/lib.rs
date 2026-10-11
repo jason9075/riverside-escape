@@ -1,6 +1,9 @@
 //! Shared gameplay state and the small P1 WebSocket protocol.
 
-use std::collections::{BTreeMap, VecDeque};
+use std::{
+    collections::{BTreeMap, VecDeque},
+    sync::OnceLock,
+};
 
 use serde::{Deserialize, Serialize};
 
@@ -9,6 +12,11 @@ pub const SNAPSHOT_HZ: u32 = 20;
 pub const COUNTDOWN_SECONDS: u8 = 5;
 pub const MAX_SPEED: f32 = 11.0;
 pub const TRACK_HALF_WIDTH: f32 = 2.3;
+pub const BIKE_COLLISION_HALF_WIDTH: f32 = 0.28;
+pub const ROAD_STRAIGHT_LENGTH_M: f32 = 8.0;
+pub const ROAD_CURVE_RADIUS_M: f32 = 10.0;
+pub const ROAD_CURVE_ANGLE_RADIANS: f32 = std::f32::consts::PI / 6.0;
+pub const ROAD_CURVE_LENGTH_M: f32 = ROAD_CURVE_RADIUS_M * ROAD_CURVE_ANGLE_RADIANS;
 pub const FIXED_DT: f32 = 1.0 / SIMULATION_HZ as f32;
 pub const FIXED_DT_SECONDS: f64 = 1.0 / SIMULATION_HZ as f64;
 pub const INTERPOLATION_DELAY_TICKS: u64 = SIMULATION_HZ as u64 / SNAPSHOT_HZ as u64;
@@ -509,18 +517,573 @@ impl BikeState {
             return previous_speed > 0.5;
         }
 
-        // The prototype lane is bounded by the road shoulders.
-        if next_x.abs() > TRACK_HALF_WIDTH - 0.28 {
+        // Prediction and authority use the same authored road centerline and
+        // width. This also keeps turns continuous instead of imposing the old
+        // short prototype's global X boundary on the whole level.
+        if !riverside_course().contains(next_x, next_z) {
             self.speed = (self.speed - 4.0 * dt).max(0.0);
-            self.x = self
-                .x
-                .clamp(-TRACK_HALF_WIDTH + 0.28, TRACK_HALF_WIDTH - 0.28);
             return previous_speed > self.speed + 0.5;
         }
 
         self.x = next_x;
         self.z = next_z;
         previous_speed > 0.5 && self.speed == 0.0
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RoadSection {
+    OpenRiverside,
+    BridgeUnderpass,
+    NarrowBends,
+}
+
+impl RoadSection {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::OpenRiverside => "Open Riverside",
+            Self::BridgeUnderpass => "Bridge Underpass",
+            Self::NarrowBends => "Narrow Bends",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RoadPieceKind {
+    Straight,
+    CurveRight,
+    CurveLeft,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RoadPiece {
+    pub kind: RoadPieceKind,
+    pub section: RoadSection,
+    /// Asset root pose. Curves turn in the asset's forward direction; a left
+    /// turn uses the same GLB traversed from its exit back to its entry.
+    pub root_x: f32,
+    pub root_z: f32,
+    pub root_yaw: f32,
+    pub reversed: bool,
+    pub start_distance_m: f32,
+    pub length_m: f32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct CoursePoint {
+    x: f32,
+    z: f32,
+    yaw: f32,
+    distance_m: f32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CourseProjection {
+    pub distance_m: f32,
+    /// Signed offset from the centerline; positive is to the Rider's right.
+    pub lateral_m: f32,
+    pub center_distance_m: f32,
+    pub section: RoadSection,
+    pub center_x: f32,
+    pub center_z: f32,
+    pub yaw: f32,
+}
+
+#[derive(Debug)]
+pub struct RiversideCourse {
+    pieces: Vec<RoadPiece>,
+    points: Vec<CoursePoint>,
+    length_m: f32,
+}
+
+/// The level layout is built once from the same lightweight data used by
+/// rendering, Rider prediction, and the headless Server.
+pub fn riverside_course() -> &'static RiversideCourse {
+    static COURSE: OnceLock<RiversideCourse> = OnceLock::new();
+    COURSE.get_or_init(RiversideCourse::build)
+}
+
+impl RiversideCourse {
+    fn build() -> Self {
+        let mut builder = CourseBuilder::new();
+
+        // Four alternating S-bends keep the open section legible while
+        // keeping the existing prototype obstacles on its initial straight.
+        for (index, straights) in [11, 11, 11, 12].into_iter().enumerate() {
+            let lead = straights / 2;
+            builder.straights(lead, RoadSection::OpenRiverside);
+            let first_turn = if index % 2 == 0 {
+                RoadPieceKind::CurveRight
+            } else {
+                RoadPieceKind::CurveLeft
+            };
+            builder.curve(first_turn, RoadSection::OpenRiverside);
+            builder.straights(straights - lead, RoadSection::OpenRiverside);
+            builder.curve(opposite_turn(first_turn), RoadSection::OpenRiverside);
+        }
+
+        builder.straights(50, RoadSection::BridgeUnderpass);
+
+        // Repeated S-bends make the last section visibly more technical but
+        // preserve broad enough radii for the existing bicycle controller.
+        for index in 0..6 {
+            let first_turn = if index % 2 == 0 {
+                RoadPieceKind::CurveRight
+            } else {
+                RoadPieceKind::CurveLeft
+            };
+            builder.straights(5, RoadSection::NarrowBends);
+            builder.curve(first_turn, RoadSection::NarrowBends);
+            builder.straights(2, RoadSection::NarrowBends);
+            builder.curve(opposite_turn(first_turn), RoadSection::NarrowBends);
+        }
+
+        builder.finish()
+    }
+
+    pub fn pieces(&self) -> &[RoadPiece] {
+        &self.pieces
+    }
+
+    pub fn length_m(&self) -> f32 {
+        self.length_m
+    }
+
+    pub fn section_at(&self, distance_m: f32) -> RoadSection {
+        let distance_m = distance_m.clamp(0.0, self.length_m);
+        self.pieces
+            .iter()
+            .find(|piece| distance_m < piece.start_distance_m + piece.length_m)
+            .or_else(|| self.pieces.last())
+            .map_or(RoadSection::OpenRiverside, |piece| piece.section)
+    }
+
+    pub fn curvature_at(&self, distance_m: f32) -> f32 {
+        let distance_m = distance_m.clamp(0.0, self.length_m);
+        let piece = self
+            .pieces
+            .iter()
+            .find(|piece| distance_m < piece.start_distance_m + piece.length_m)
+            .or_else(|| self.pieces.last());
+        match piece.map(|piece| piece.kind) {
+            Some(RoadPieceKind::CurveRight) => 1.0 / ROAD_CURVE_RADIUS_M,
+            Some(RoadPieceKind::CurveLeft) => -1.0 / ROAD_CURVE_RADIUS_M,
+            _ => 0.0,
+        }
+    }
+
+    pub fn point_at(&self, distance_m: f32) -> CourseProjection {
+        let target = distance_m.clamp(0.0, self.length_m);
+        let pair = self
+            .points
+            .windows(2)
+            .find(|pair| target <= pair[1].distance_m)
+            .unwrap_or_else(|| {
+                let end = self.points.len() - 1;
+                &self.points[end - 1..=end]
+            });
+        let span = pair[1].distance_m - pair[0].distance_m;
+        let alpha = if span > f32::EPSILON {
+            ((target - pair[0].distance_m) / span).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        CourseProjection {
+            distance_m: target,
+            lateral_m: 0.0,
+            center_distance_m: 0.0,
+            section: self.section_at(target),
+            center_x: pair[0].x + (pair[1].x - pair[0].x) * alpha,
+            center_z: pair[0].z + (pair[1].z - pair[0].z) * alpha,
+            yaw: approach_course_angle(pair[0].yaw, pair[1].yaw, alpha),
+        }
+    }
+
+    pub fn project(&self, x: f32, z: f32) -> CourseProjection {
+        let mut best = (
+            f32::INFINITY,
+            CourseProjection {
+                distance_m: 0.0,
+                lateral_m: 0.0,
+                center_distance_m: f32::INFINITY,
+                section: RoadSection::OpenRiverside,
+                center_x: 0.0,
+                center_z: 0.0,
+                yaw: 0.0,
+            },
+        );
+        for pair in self.points.windows(2) {
+            let dx = pair[1].x - pair[0].x;
+            let dz = pair[1].z - pair[0].z;
+            let length_squared = dx * dx + dz * dz;
+            let alpha = if length_squared > f32::EPSILON {
+                (((x - pair[0].x) * dx + (z - pair[0].z) * dz) / length_squared).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            let center_x = pair[0].x + dx * alpha;
+            let center_z = pair[0].z + dz * alpha;
+            let offset_x = x - center_x;
+            let offset_z = z - center_z;
+            let distance_squared = offset_x * offset_x + offset_z * offset_z;
+            if distance_squared >= best.0 {
+                continue;
+            }
+            let yaw = approach_course_angle(pair[0].yaw, pair[1].yaw, alpha);
+            best = (
+                distance_squared,
+                CourseProjection {
+                    distance_m: pair[0].distance_m
+                        + (pair[1].distance_m - pair[0].distance_m) * alpha,
+                    lateral_m: offset_x * yaw.cos() + offset_z * yaw.sin(),
+                    center_distance_m: distance_squared.sqrt(),
+                    section: self.section_at(
+                        pair[0].distance_m + (pair[1].distance_m - pair[0].distance_m) * alpha,
+                    ),
+                    center_x,
+                    center_z,
+                    yaw,
+                },
+            );
+        }
+        best.1
+    }
+
+    pub fn contains(&self, x: f32, z: f32) -> bool {
+        let projection = self.project(x, z);
+        projection.lateral_m.abs() <= TRACK_HALF_WIDTH - BIKE_COLLISION_HALF_WIDTH
+            && projection.center_distance_m <= TRACK_HALF_WIDTH - BIKE_COLLISION_HALF_WIDTH
+            && projection.distance_m <= self.length_m
+    }
+}
+
+struct CourseBuilder {
+    pieces: Vec<RoadPiece>,
+    points: Vec<CoursePoint>,
+    x: f32,
+    z: f32,
+    yaw: f32,
+    distance_m: f32,
+}
+
+impl CourseBuilder {
+    fn new() -> Self {
+        Self {
+            pieces: Vec::new(),
+            points: vec![CoursePoint {
+                x: 0.0,
+                z: BikeState::default().z,
+                yaw: 0.0,
+                distance_m: 0.0,
+            }],
+            x: 0.0,
+            z: BikeState::default().z,
+            yaw: 0.0,
+            distance_m: 0.0,
+        }
+    }
+
+    fn straights(&mut self, count: usize, section: RoadSection) {
+        for _ in 0..count {
+            let start_distance_m = self.distance_m;
+            self.pieces.push(RoadPiece {
+                kind: RoadPieceKind::Straight,
+                section,
+                root_x: self.x,
+                root_z: self.z,
+                root_yaw: self.yaw,
+                reversed: false,
+                start_distance_m,
+                length_m: ROAD_STRAIGHT_LENGTH_M,
+            });
+            for step in 1..=8 {
+                self.push_local_point(
+                    0.0,
+                    -(step as f32),
+                    self.yaw,
+                    start_distance_m + step as f32,
+                );
+            }
+            self.distance_m += ROAD_STRAIGHT_LENGTH_M;
+            self.advance(0.0, -ROAD_STRAIGHT_LENGTH_M);
+        }
+    }
+
+    fn curve(&mut self, kind: RoadPieceKind, section: RoadSection) {
+        let is_left = kind == RoadPieceKind::CurveLeft;
+        let direction = if is_left { -1.0 } else { 1.0 };
+        let start_distance_m = self.distance_m;
+        let (root_x, root_z, root_yaw) = if is_left {
+            // Place the authored right-turn GLB so its exit is the route
+            // entry, then travel the geometry backwards for a left turn.
+            let root_yaw = self.yaw + 5.0 * std::f32::consts::PI / 6.0;
+            let (dx, dz) = local_to_world(1.33975, -5.0, root_yaw);
+            (self.x - dx, self.z - dz, root_yaw)
+        } else {
+            (self.x, self.z, self.yaw)
+        };
+        self.pieces.push(RoadPiece {
+            kind,
+            section,
+            root_x,
+            root_z,
+            root_yaw,
+            reversed: is_left,
+            start_distance_m,
+            length_m: ROAD_CURVE_LENGTH_M,
+        });
+
+        let mut distance_m = 0.5;
+        while distance_m < ROAD_CURVE_LENGTH_M {
+            let angle = distance_m / ROAD_CURVE_RADIUS_M;
+            let local_x = direction * ROAD_CURVE_RADIUS_M * (1.0 - angle.cos());
+            let local_z = -ROAD_CURVE_RADIUS_M * angle.sin();
+            let (dx, dz) = local_to_world(local_x, local_z, self.yaw);
+            self.points.push(CoursePoint {
+                x: self.x + dx,
+                z: self.z + dz,
+                yaw: wrap_course_angle(self.yaw + direction * angle),
+                distance_m: start_distance_m + distance_m,
+            });
+            distance_m += 0.5;
+        }
+        let angle = ROAD_CURVE_ANGLE_RADIANS;
+        let local_x = direction * ROAD_CURVE_RADIUS_M * (1.0 - angle.cos());
+        let local_z = -ROAD_CURVE_RADIUS_M * angle.sin();
+        self.push_local_point(
+            local_x,
+            local_z,
+            wrap_course_angle(self.yaw + direction * angle),
+            start_distance_m + ROAD_CURVE_LENGTH_M,
+        );
+        self.distance_m += ROAD_CURVE_LENGTH_M;
+        self.advance(local_x, local_z);
+        self.yaw = wrap_course_angle(self.yaw + direction * angle);
+    }
+
+    fn push_local_point(&mut self, local_x: f32, local_z: f32, yaw: f32, distance_m: f32) {
+        let (dx, dz) = local_to_world(local_x, local_z, self.yaw);
+        self.points.push(CoursePoint {
+            x: self.x + dx,
+            z: self.z + dz,
+            yaw,
+            distance_m,
+        });
+    }
+
+    fn advance(&mut self, local_x: f32, local_z: f32) {
+        let (dx, dz) = local_to_world(local_x, local_z, self.yaw);
+        self.x += dx;
+        self.z += dz;
+    }
+
+    fn finish(self) -> RiversideCourse {
+        RiversideCourse {
+            pieces: self.pieces,
+            points: self.points,
+            length_m: self.distance_m,
+        }
+    }
+}
+
+fn local_to_world(local_x: f32, local_z: f32, yaw: f32) -> (f32, f32) {
+    (
+        yaw.cos() * local_x - yaw.sin() * local_z,
+        yaw.sin() * local_x + yaw.cos() * local_z,
+    )
+}
+
+fn opposite_turn(kind: RoadPieceKind) -> RoadPieceKind {
+    match kind {
+        RoadPieceKind::CurveRight => RoadPieceKind::CurveLeft,
+        RoadPieceKind::CurveLeft => RoadPieceKind::CurveRight,
+        RoadPieceKind::Straight => RoadPieceKind::Straight,
+    }
+}
+
+fn wrap_course_angle(angle: f32) -> f32 {
+    angle.rem_euclid(std::f32::consts::TAU)
+}
+
+fn approach_course_angle(from: f32, to: f32, alpha: f32) -> f32 {
+    let delta =
+        (to - from + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
+    wrap_course_angle(from + delta * alpha)
+}
+
+#[cfg(test)]
+mod course_tests {
+    use super::{
+        BIKE_COLLISION_HALF_WIDTH, BikeState, FIXED_DT, MAX_SPEED, ROAD_CURVE_LENGTH_M,
+        ROAD_STRAIGHT_LENGTH_M, RiderInput, RoadPieceKind, RoadSection, TRACK_HALF_WIDTH,
+        riverside_course,
+    };
+
+    fn angle_delta(from: f32, to: f32) -> f32 {
+        (to - from + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI
+    }
+
+    #[test]
+    fn course_connects_three_ordered_sections_and_is_about_1_2_km() {
+        let course = riverside_course();
+        assert!(
+            (1_190.0..=1_210.0).contains(&course.length_m()),
+            "course length {:.2} m",
+            course.length_m()
+        );
+        assert_eq!(course.section_at(0.0), RoadSection::OpenRiverside);
+        let bridge_start = course
+            .pieces()
+            .iter()
+            .find(|piece| piece.section == RoadSection::BridgeUnderpass)
+            .unwrap()
+            .start_distance_m;
+        let bends_start = course
+            .pieces()
+            .iter()
+            .find(|piece| piece.section == RoadSection::NarrowBends)
+            .unwrap()
+            .start_distance_m;
+        assert_eq!(
+            course.section_at(bridge_start),
+            RoadSection::BridgeUnderpass
+        );
+        assert_eq!(course.section_at(bends_start), RoadSection::NarrowBends);
+        assert!(bridge_start > 390.0 && bridge_start < 410.0);
+        assert!(bends_start > 790.0 && bends_start < 810.0);
+
+        let straight_count = course
+            .pieces()
+            .iter()
+            .filter(|piece| piece.kind == RoadPieceKind::Straight)
+            .count();
+        let curve_count = course.pieces().len() - straight_count;
+        assert_eq!(straight_count, 137);
+        assert_eq!(curve_count, 20);
+        assert!(
+            (course.length_m() - (137.0 * ROAD_STRAIGHT_LENGTH_M + 20.0 * ROAD_CURVE_LENGTH_M))
+                .abs()
+                < 0.01
+        );
+    }
+
+    #[test]
+    fn every_authored_piece_socket_matches_its_route_entry_and_exit() {
+        let course = riverside_course();
+        for piece in course.pieces() {
+            let entry = course.point_at(piece.start_distance_m);
+            let exit = course.point_at(piece.start_distance_m + piece.length_m);
+            let angle = -piece.root_yaw;
+            let asset_exit_x = piece.root_x + angle.cos() * 1.33975 + angle.sin() * -5.0;
+            let asset_exit_z = piece.root_z - angle.sin() * 1.33975 + angle.cos() * -5.0;
+            if piece.kind == RoadPieceKind::CurveLeft {
+                assert!((asset_exit_x - entry.center_x).abs() < 0.002);
+                assert!((asset_exit_z - entry.center_z).abs() < 0.002);
+                assert!((piece.root_x - exit.center_x).abs() < 0.002);
+                assert!((piece.root_z - exit.center_z).abs() < 0.002);
+            } else if piece.kind == RoadPieceKind::CurveRight {
+                assert!((piece.root_x - entry.center_x).abs() < 0.002);
+                assert!((piece.root_z - entry.center_z).abs() < 0.002);
+                assert!((asset_exit_x - exit.center_x).abs() < 0.002);
+                assert!((asset_exit_z - exit.center_z).abs() < 0.002);
+            } else {
+                assert!((piece.root_x - entry.center_x).abs() < 0.002);
+                assert!((piece.root_z - entry.center_z).abs() < 0.002);
+                assert!(angle_delta(piece.root_yaw, entry.yaw).abs() < 0.002);
+                assert!(
+                    (exit.center_x - piece.root_x - entry.yaw.sin() * piece.length_m).abs() < 0.002
+                );
+                assert!(
+                    (exit.center_z - piece.root_z + entry.yaw.cos() * piece.length_m).abs() < 0.002
+                );
+            }
+            assert!(angle_delta(entry.yaw, exit.yaw).abs() < 0.53);
+        }
+    }
+
+    #[test]
+    fn road_collision_follows_curves_and_rejects_both_sides_of_road() {
+        let course = riverside_course();
+        let curve = course
+            .pieces()
+            .iter()
+            .find(|piece| piece.section == RoadSection::NarrowBends)
+            .unwrap();
+        let center = course.point_at(curve.start_distance_m + ROAD_CURVE_LENGTH_M * 0.5);
+        let right_x = center.center_x
+            + center.yaw.cos() * (TRACK_HALF_WIDTH - BIKE_COLLISION_HALF_WIDTH - 0.1);
+        let right_z = center.center_z
+            + center.yaw.sin() * (TRACK_HALF_WIDTH - BIKE_COLLISION_HALF_WIDTH - 0.1);
+        let outside_x = center.center_x + center.yaw.cos() * (TRACK_HALF_WIDTH + 0.1);
+        let outside_z = center.center_z + center.yaw.sin() * (TRACK_HALF_WIDTH + 0.1);
+        assert!(course.contains(center.center_x, center.center_z));
+        assert!(course.contains(right_x, right_z));
+        assert!(!course.contains(outside_x, outside_z));
+        assert!(!course.contains(
+            center.center_x - center.yaw.cos() * (TRACK_HALF_WIDTH + 0.1),
+            center.center_z - center.yaw.sin() * (TRACK_HALF_WIDTH + 0.1)
+        ));
+    }
+
+    #[test]
+    fn fixed_step_rider_can_follow_the_full_route_and_avoid_the_early_barrier() {
+        let course = riverside_course();
+        let mut bike = BikeState::default();
+        let mut highest_distance = 0.0_f32;
+        let mut reached = false;
+        let mut elapsed_ticks = 0;
+        for _ in 0..60 * 240 {
+            elapsed_ticks += 1;
+            let projection = course.project(bike.x, bike.z);
+            highest_distance = highest_distance.max(projection.distance_m);
+            if projection.distance_m >= course.length_m() - 3.0 {
+                reached = true;
+                break;
+            }
+            let lookahead = course.point_at((projection.distance_m + 4.0).min(course.length_m()));
+            let obstacle_detour = if (30.0..45.0).contains(&projection.distance_m) {
+                1.25
+            } else {
+                0.0
+            };
+            let target_x = lookahead.center_x + lookahead.yaw.cos() * obstacle_detour;
+            let target_z = lookahead.center_z + lookahead.yaw.sin() * obstacle_detour;
+            let desired_yaw = (target_x - bike.x).atan2(bike.z - target_z);
+            let heading_error = angle_delta(bike.yaw, desired_yaw);
+            let desired_curvature = course.curvature_at(projection.distance_m + 2.0);
+            let steer = ((desired_curvature + heading_error * 0.65) / 0.148).clamp(-1.0, 1.0);
+            bike.step(
+                RiderInput {
+                    pedal_held: true,
+                    steer,
+                    ..RiderInput::default()
+                },
+                FIXED_DT,
+            );
+            let after = course.project(bike.x, bike.z);
+            highest_distance = highest_distance.max(after.distance_m);
+            assert!(
+                course.contains(bike.x, bike.z),
+                "bike left road at {:.1} m ({:.2}, {:.2})",
+                after.distance_m,
+                bike.x,
+                bike.z
+            );
+        }
+        assert!(
+            reached,
+            "rider only reached {:.1} / {:.1} m at {:.1} m/s (max speed {:.1})",
+            highest_distance,
+            course.length_m(),
+            bike.speed,
+            MAX_SPEED
+        );
+        eprintln!(
+            "controlled Rider traversed {:.1} m in {:.1} s ({} fixed ticks)",
+            highest_distance,
+            elapsed_ticks as f32 * FIXED_DT,
+            elapsed_ticks
+        );
     }
 }
 

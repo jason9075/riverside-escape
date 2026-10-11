@@ -13,9 +13,9 @@ use riverside_common::{
     GUNNER_PITCH_MAX_RADIANS, GUNNER_PITCH_MIN_RADIANS, GUNNER_STARTING_AMMO, GamePhase,
     GunnerInput, HELICOPTER_ALTITUDE_M, HELICOPTER_STARTING_HEALTH, HelicopterSnapshot,
     MatchResult, OBSTACLES, ObstacleKind, PlayerMissileSnapshot, REQUIRED_SEATS,
-    ROCKET_BLAST_RADIUS_M, RiderInput, RiderInputSample, RiderPrediction, RocketSnapshot,
-    SIMULATION_HZ, SeatKind, SeatStatus, SnapshotInterpolator, WorldPosition, WorldSnapshot,
-    evaluate_gunner_aim,
+    ROAD_STRAIGHT_LENGTH_M, ROCKET_BLAST_RADIUS_M, RiderInput, RiderInputSample, RiderPrediction,
+    RoadPieceKind, RocketSnapshot, SIMULATION_HZ, SeatKind, SeatStatus, SnapshotInterpolator,
+    WorldPosition, WorldSnapshot, evaluate_gunner_aim, riverside_course,
 };
 
 use crate::network::NetworkClient;
@@ -472,54 +472,133 @@ pub fn setup_scene(
         ..default()
     });
 
+    let course = riverside_course();
+    let course_length = course.length_m();
     commands.spawn((
-        Mesh3d(meshes.add(Plane3d::default().mesh().size(400.0, 400.0))),
+        Mesh3d(meshes.add(Plane3d::default().mesh().size(600.0, course_length + 160.0))),
         MeshMaterial3d(grass),
-        Transform::from_xyz(0.0, -0.23, -35.0),
+        Transform::from_xyz(0.0, -0.23, BikeState::default().z - course_length * 0.5),
     ));
 
-    // Extend the road behind the starting position as well, so the Gunner's
-    // rear-facing first-person view still has a path and landmarks to see.
-    for segment in -6..15 {
-        let z = -(segment as f32) * 8.0;
+    let rail_mesh = meshes.add(Cuboid::new(0.12, 0.44, 8.0));
+    let lane_mesh = meshes.add(Cuboid::new(0.055, 0.018, 8.0));
+    let short_rail_mesh = meshes.add(Cuboid::new(0.12, 0.44, 1.0));
+    // Give the rear-facing Gunner a short visual road behind the start line;
+    // the playable course itself still begins at the default bike position.
+    for segment in 1..=6 {
+        let base = Transform::from_xyz(
+            0.0,
+            0.0,
+            BikeState::default().z + ROAD_STRAIGHT_LENGTH_M * segment as f32,
+        );
         commands.spawn((
             WorldAssetRoot(
                 asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/road_straight.glb")),
             ),
-            Transform::from_xyz(0.0, 0.0, z),
+            base,
         ));
-
         for side in [-1.0, 1.0] {
+            let mut rail_transform = base;
+            rail_transform.translation += Vec3::new(side * 2.55, 0.34, -4.0);
             commands.spawn((
-                Mesh3d(meshes.add(Cuboid::new(0.12, 0.44, 8.0))),
+                Mesh3d(rail_mesh.clone()),
                 MeshMaterial3d(rail_material.clone()),
-                Transform::from_xyz(side * 2.55, 0.34, z - 4.0),
+                rail_transform,
             ));
+            let mut lane_transform = base;
+            lane_transform.translation += Vec3::new(side * 1.58, 0.015, -4.0);
             commands.spawn((
-                Mesh3d(meshes.add(Cuboid::new(0.055, 0.018, 8.0))),
+                Mesh3d(lane_mesh.clone()),
                 MeshMaterial3d(lane_material.clone()),
-                Transform::from_xyz(side * 1.58, 0.015, z - 4.0),
+                lane_transform,
             ));
         }
     }
+    for piece in course.pieces() {
+        let road_asset = match piece.kind {
+            RoadPieceKind::Straight => "models/road_straight.glb",
+            RoadPieceKind::CurveRight | RoadPieceKind::CurveLeft => "models/road_curve.glb",
+        };
+        let base = Transform::from_xyz(piece.root_x, 0.0, piece.root_z)
+            .with_rotation(Quat::from_rotation_y(-piece.root_yaw));
+        commands.spawn((
+            WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(road_asset))),
+            base,
+        ));
 
-    for (index, z) in [-13.0, -39.0, -69.0, -95.0, 13.0, 39.0]
-        .into_iter()
-        .enumerate()
-    {
+        if piece.kind == RoadPieceKind::Straight {
+            for side in [-1.0, 1.0] {
+                let mut rail_transform = base;
+                rail_transform.translation += base.rotation * Vec3::new(side * 2.55, 0.34, -4.0);
+                commands.spawn((
+                    Mesh3d(rail_mesh.clone()),
+                    MeshMaterial3d(rail_material.clone()),
+                    rail_transform,
+                ));
+                let mut lane_transform = base;
+                lane_transform.translation += base.rotation * Vec3::new(side * 1.58, 0.015, -4.0);
+                commands.spawn((
+                    Mesh3d(lane_mesh.clone()),
+                    MeshMaterial3d(lane_material.clone()),
+                    lane_transform,
+                ));
+            }
+        } else {
+            let sections = (piece.length_m / 1.0).ceil() as usize;
+            for index in 0..sections {
+                let start = index as f32;
+                let end = (start + 1.0).min(piece.length_m);
+                let center = course.point_at(piece.start_distance_m + (start + end) * 0.5);
+                let yaw = center.yaw;
+                let rotation = Quat::from_rotation_y(-yaw);
+                for side in [-1.0, 1.0] {
+                    let right = Vec3::new(yaw.cos(), 0.0, yaw.sin());
+                    commands.spawn((
+                        Mesh3d(short_rail_mesh.clone()),
+                        MeshMaterial3d(rail_material.clone()),
+                        Transform::from_xyz(center.center_x, 0.34, center.center_z)
+                            .with_translation(
+                                Vec3::new(center.center_x, 0.34, center.center_z)
+                                    + right * side * 2.55,
+                            )
+                            .with_rotation(rotation)
+                            .with_scale(Vec3::new(1.0, 1.0, end - start)),
+                    ));
+                }
+            }
+        }
+    }
+
+    let landmark_spacing = 80.0;
+    let mut landmark_distance = 28.0;
+    let mut index = 0;
+    while landmark_distance < course_length - 24.0 {
+        let landmark = course.point_at(landmark_distance);
         let side = if index % 2 == 0 { 1.0 } else { -1.0 };
+        let right = Vec3::new(landmark.yaw.cos(), 0.0, landmark.yaw.sin());
+        let rotation = Quat::from_rotation_y(-landmark.yaw);
         commands.spawn((
             WorldAssetRoot(
                 asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/riverside_lamp.glb")),
             ),
-            Transform::from_xyz(side * 3.4, 0.0, z),
+            Transform::from_xyz(landmark.center_x, 0.0, landmark.center_z)
+                .with_translation(
+                    Vec3::new(landmark.center_x, 0.0, landmark.center_z) + right * side * 3.4,
+                )
+                .with_rotation(rotation),
         ));
         commands.spawn((
             WorldAssetRoot(
                 asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/riverside_tree.glb")),
             ),
-            Transform::from_xyz(-side * 4.8, 0.0, z - 5.0),
+            Transform::from_xyz(landmark.center_x, 0.0, landmark.center_z)
+                .with_translation(
+                    Vec3::new(landmark.center_x, 0.0, landmark.center_z) - right * side * 4.8,
+                )
+                .with_rotation(rotation),
         ));
+        index += 1;
+        landmark_distance += landmark_spacing;
     }
 
     let bike = commands
@@ -649,7 +728,7 @@ pub fn setup_scene(
         ))
         .with_children(|panel| {
             panel.spawn((
-                Text::new("RIVERSIDE ESCAPE   /   P3 COMBAT PROTOTYPE"),
+                Text::new("RIVERSIDE ESCAPE   /   P4 ROUTE PROTOTYPE"),
                 TextFont {
                     font_size: FontSize::Px(19.0),
                     ..default()
@@ -1424,7 +1503,7 @@ pub(super) fn update_hud(
     };
     if let Ok(mut text) = hud.single_mut() {
         text.0 = format!(
-            "RIVERSIDE ESCAPE  /  P3\n{}  |  {}\n{}\nSpeed {:>4.1} m/s\n{}\n{}{}{}",
+            "RIVERSIDE ESCAPE  /  P4\n{}  |  {}\n{}\nSpeed {:>4.1} m/s\n{}\n{}{}{}",
             session.local_seat.label(),
             status,
             players,

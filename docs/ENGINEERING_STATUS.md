@@ -1,7 +1,7 @@
 # 工程狀態
 
 - 更新日期：2026-10-11
-- 目前階段：P0／P1／P2 原型工程驗收通過；P3 鎖定反擊與勝敗循環已完成實作、驗證與提交，待 PM 工程驗收
+- 目前階段：P0／P1／P2／P3 原型工程驗收通過；P4 進行中，第一批共用河濱路線與路面碰撞已完成工程驗證
 - 範圍：P0／P1／P2 是已驗收基線；P3 依 PM 最新決策完成，參數仍屬可調原型配置
 
 ## Git 基線與提交狀態
@@ -47,6 +47,16 @@
 - 驗證報告與畫面：[P3 驗證說明](verification/p3/README.md)、[雙端事件／血量報告](verification/p3/smoke-report.json)、[Gunner 看見直升機](verification/p3/gunner-helicopter-visible.png)、[Gunner 飛彈命中](verification/p3/gunner-missile-hit.png)、[Rider／Gunner 勝利畫面](verification/p3/rider-victory.png)、[Solo 換至 Gunner](verification/p3/solo-gunner-after-switch.png)。
 - `cargo fmt --all -- --check`、`cargo test --workspace`、`cargo check --workspace`、WASM target check、`cargo clippy --workspace --all-targets`、Server build 與 Trunk Release build 均通過。
 - P3 功能與程式、測試、瀏覽器報告及畫面證據一併提交。
+
+## P4 第一批：共用河濱路線與路面碰撞
+
+- 新增由 `riverside-common` 建立且快取的 `RiversideCourse`，以約 1.2 km 單一路線依序連接開闊河岸、橋下直線段及狹窄彎道。路段共 137 個 8 m 直線模組、20 個半徑 10 m／30° 彎道模組；左彎由既有右彎 GLB 反向通行，不需鏡射模型。Client 由同一批模組資料放置道路和彎道護欄，Server 不載入渲染素材。
+- 路線總長 **1,200.7 m**：開闊河岸 401.9 m、橋下區段 400.0 m、狹窄彎道 398.8 m。彎道中心線以 0.5 m 間距取樣；自由騎乘控制不吸附中心線，車體跨出路面時由共用路面投影／寬度資料阻擋移動。取消舊的全域 X 座標短跑道邊界。
+- Client 預測與 Server 權威皆呼叫同一 `BikeState::step`，碰撞查詢直接使用同一份 `riverside_course()`。固定步長受控 Rider 以持續踩踏及轉向追蹤全線，在避開原有水泥障礙後走到距離終點 3 m 內：**1,197.9 m／110.6 s／6,633 ticks**。這是工程控制器路線可通行證據，終點授權與正式逃脫時間會在檢查點／結算批次完成後重測。
+- 新增測試涵蓋三段順序與路線長度、全部道路模組接縫、彎道兩側路面邊界及完整固定步長路線。`cargo test --workspace` 通過 31 項（Client 3、common 7、reconciliation 6、Server 15）；WASM target `cargo check`、workspace Clippy 與 Trunk build 通過。
+- 遠端 Headless Chromium／SwiftShader 實際載入 WebGL2 場景，能看到 P4 路面與彎道；固定 100 ms RTT 雙 Client 的 P3 戰鬥回歸也通過，三發事件與勝利快照雙端一致、重賽重設及 Solo Ready／換座正常，三個 Client 無 JS 或 console error。此回歸讓 Rider 停在起點以分離移動對瞄準的影響；連續踩踏的原 P3 測試腳本會撞上舊水泥障礙並在第二發時失鎖，因此該腳本不作本次瞄準穩定性的驗收依據。
+- P4 固定 100 ms RTT 雙端 WASM 的區段、橋下掩體與逃脫事件一致性留待後兩批整合後驗證；此批不代表實體 GPU、正式平衡或最終 3–5 分鐘局長已驗收。可重現資料與起點畫面見 [`P4 路線驗證`](verification/p4/README.md)。
+- 本批程式、測試、驗證紀錄與狀態一併獨立提交；commit hash 由 Git 歷史記錄。
 
 ## 遠端開發與驗證環境
 

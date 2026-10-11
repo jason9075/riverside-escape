@@ -1,0 +1,629 @@
+{
+  "fixed_rtt_ms": 100,
+  "one_way_delay_ms": 50,
+  "lock_attempts": [
+    {
+      "adjustment_count": 48,
+      "final_adjustments": [
+        {
+          "tick": 25497,
+          "desired": {
+            "yaw": 0,
+            "pitch": 0.4434011547388472
+          },
+          "current": {
+            "yaw": 0,
+            "pitch": 0.444
+          },
+          "error": {
+            "yaw": 0,
+            "pitch": -0.0005988452611527806
+          },
+          "mouse_delta": {
+            "x": 0,
+            "y": 0
+          },
+          "lock_progress_ticks": 65
+        },
+        {
+          "tick": 25503,
+          "desired": {
+            "yaw": 0,
+            "pitch": 0.4434011547388472
+          },
+          "current": {
+            "yaw": 0,
+            "pitch": 0.444
+          },
+          "error": {
+            "yaw": 0,
+            "pitch": -0.0005988452611527806
+          },
+          "mouse_delta": {
+            "x": 0,
+            "y": 0
+          },
+          "lock_progress_ticks": 71
+        },
+        {
+          "tick": 25512,
+          "desired": {
+            "yaw": 0,
+            "pitch": 0.4434011547388472
+          },
+          "current": {
+            "yaw": 0,
+            "pitch": 0.444
+          },
+          "error": {
+            "yaw": 0,
+            "pitch": -0.0005988452611527806
+          },
+          "mouse_delta": {
+            "x": 0,
+            "y": 0
+          },
+          "lock_progress_ticks": 80
+        },
+        {
+          "tick": 25518,
+          "desired": {
+            "yaw": 0,
+            "pitch": 0.4434011547388472
+          },
+          "current": {
+            "yaw": 0,
+            "pitch": 0.444
+          },
+          "error": {
+            "yaw": 0,
+            "pitch": -0.0005988452611527806
+          },
+          "mouse_delta": {
+            "x": 0,
+            "y": 0
+          },
+          "lock_progress_ticks": 86
+        },
+        {
+          "tick": 25527,
+          "desired": {
+            "yaw": 0,
+            "pitch": 0.4434011547388472
+          },
+          "current": {
+            "yaw": 0,
+            "pitch": 0.444
+          },
+          "error": {
+            "yaw": 0,
+            "pitch": -0.0005988452611527806
+          },
+          "mouse_delta": {
+            "x": 0,
+            "y": 0
+          },
+          "lock_progress_ticks": 95
+        },
+        {
+          "tick": 25533,
+          "desired": {
+            "yaw": 0,
+            "pitch": 0.4434011547388472
+          },
+          "current": {
+            "yaw": 0,
+            "pitch": 0.444
+          },
+          "error": {
+            "yaw": 0,
+            "pitch": -0.0005988452611527806
+          },
+          "mouse_delta": {
+            "x": 0,
+            "y": 0
+          },
+          "lock_progress_ticks": 101
+        },
+        {
+          "tick": 25539,
+          "desired": {
+            "yaw": 0,
+            "pitch": 0.4434011547388472
+          },
+          "current": {
+            "yaw": 0,
+            "pitch": 0.444
+          },
+          "error": {
+            "yaw": 0,
+            "pitch": -0.0005988452611527806
+          },
+          "mouse_delta": {
+            "x": 0,
+            "y": 0
+          },
+          "lock_progress_ticks": 107
+        },
+        {
+          "tick": 25548,
+          "desired": {
+            "yaw": 0,
+            "pitch": 0.4434011547388472
+          },
+          "current": {
+            "yaw": 0,
+            "pitch": 0.444
+          },
+          "error": {
+            "yaw": 0,
+            "pitch": -0.0005988452611527806
+          },
+          "mouse_delta": {
+            "x": 0,
+            "y": 0
+          },
+          "lock_progress_ticks": 116
+        }
+      ],
+      "locked_tick": 25554
+    },
+    {
+      "adjustment_count": 7,
+      "final_adjustments": [
+        {
+          "tick": 25635,
+          "desired": {
+            "yaw": 0,
+            "pitch": 0.4434011547388472
+          },
+          "current": {
+            "yaw": 0,
+            "pitch": 0.444
+          },
+          "error": {
+            "yaw": 0,
+            "pitch": -0.0005988452611527806
+          },
+          "mouse_delta": {
+            "x": 0,
+            "y": 0
+          },
+          "lock_progress_ticks": 72
+        },
+        {
+          "tick": 25644,
+          "desired": {
+            "yaw": 0,
+            "pitch": 0.4434011547388472
+          },
+          "current": {
+            "yaw": 0,
+            "pitch": 0.444
+          },
+          "error": {
+            "yaw": 0,
+            "pitch": -0.0005988452611527806
+          },
+          "mouse_delta": {
+            "x": 0,
+            "y": 0
+          },
+          "lock_progress_ticks": 78
+        },
+        {
+          "tick": 25653,
+          "desired": {
+            "yaw": 0,
+            "pitch": 0.4434011547388472
+          },
+          "current": {
+            "yaw": 0,
+            "pitch": 0.444
+          },
+          "error": {
+            "yaw": 0,
+            "pitch": -0.0005988452611527806
+          },
+          "mouse_delta": {
+            "x": 0,
+            "y": 0
+          },
+          "lock_progress_ticks": 87
+        },
+        {
+          "tick": 25659,
+          "desired": {
+            "yaw": 0,
+            "pitch": 0.4434011547388472
+          },
+          "current": {
+            "yaw": 0,
+            "pitch": 0.444
+          },
+          "error": {
+            "yaw": 0,
+            "pitch": -0.0005988452611527806
+          },
+          "mouse_delta": {
+            "x": 0,
+            "y": 0
+          },
+          "lock_progress_ticks": 93
+        },
+        {
+          "tick": 25665,
+          "desired": {
+            "yaw": 0,
+            "pitch": 0.4434011547388472
+          },
+          "current": {
+            "yaw": 0,
+            "pitch": 0.444
+          },
+          "error": {
+            "yaw": 0,
+            "pitch": -0.0005988452611527806
+          },
+          "mouse_delta": {
+            "x": 0,
+            "y": 0
+          },
+          "lock_progress_ticks": 99
+        },
+        {
+          "tick": 25674,
+          "desired": {
+            "yaw": 0,
+            "pitch": 0.4434011547388472
+          },
+          "current": {
+            "yaw": 0,
+            "pitch": 0.444
+          },
+          "error": {
+            "yaw": 0,
+            "pitch": -0.0005988452611527806
+          },
+          "mouse_delta": {
+            "x": 0,
+            "y": 0
+          },
+          "lock_progress_ticks": 108
+        },
+        {
+          "tick": 25680,
+          "desired": {
+            "yaw": 0,
+            "pitch": 0.4434011547388472
+          },
+          "current": {
+            "yaw": 0,
+            "pitch": 0.444
+          },
+          "error": {
+            "yaw": 0,
+            "pitch": -0.0005988452611527806
+          },
+          "mouse_delta": {
+            "x": 0,
+            "y": 0
+          },
+          "lock_progress_ticks": 114
+        }
+      ],
+      "locked_tick": 25689
+    },
+    {
+      "adjustment_count": 32,
+      "final_adjustments": [
+        {
+          "tick": 25986,
+          "desired": {
+            "yaw": 0,
+            "pitch": 0.4434011547388472
+          },
+          "current": {
+            "yaw": 0,
+            "pitch": 0.444
+          },
+          "error": {
+            "yaw": 0,
+            "pitch": -0.0005988452611527806
+          },
+          "mouse_delta": {
+            "x": 0,
+            "y": 0
+          },
+          "lock_progress_ticks": 67
+        },
+        {
+          "tick": 25995,
+          "desired": {
+            "yaw": 0,
+            "pitch": 0.4434011547388472
+          },
+          "current": {
+            "yaw": 0,
+            "pitch": 0.444
+          },
+          "error": {
+            "yaw": 0,
+            "pitch": -0.0005988452611527806
+          },
+          "mouse_delta": {
+            "x": 0,
+            "y": 0
+          },
+          "lock_progress_ticks": 76
+        },
+        {
+          "tick": 26001,
+          "desired": {
+            "yaw": 0,
+            "pitch": 0.4434011547388472
+          },
+          "current": {
+            "yaw": 0,
+            "pitch": 0.444
+          },
+          "error": {
+            "yaw": 0,
+            "pitch": -0.0005988452611527806
+          },
+          "mouse_delta": {
+            "x": 0,
+            "y": 0
+          },
+          "lock_progress_ticks": 82
+        },
+        {
+          "tick": 26010,
+          "desired": {
+            "yaw": 0,
+            "pitch": 0.4434011547388472
+          },
+          "current": {
+            "yaw": 0,
+            "pitch": 0.444
+          },
+          "error": {
+            "yaw": 0,
+            "pitch": -0.0005988452611527806
+          },
+          "mouse_delta": {
+            "x": 0,
+            "y": 0
+          },
+          "lock_progress_ticks": 91
+        },
+        {
+          "tick": 26016,
+          "desired": {
+            "yaw": 0,
+            "pitch": 0.4434011547388472
+          },
+          "current": {
+            "yaw": 0,
+            "pitch": 0.444
+          },
+          "error": {
+            "yaw": 0,
+            "pitch": -0.0005988452611527806
+          },
+          "mouse_delta": {
+            "x": 0,
+            "y": 0
+          },
+          "lock_progress_ticks": 97
+        },
+        {
+          "tick": 26022,
+          "desired": {
+            "yaw": 0,
+            "pitch": 0.4434011547388472
+          },
+          "current": {
+            "yaw": 0,
+            "pitch": 0.444
+          },
+          "error": {
+            "yaw": 0,
+            "pitch": -0.0005988452611527806
+          },
+          "mouse_delta": {
+            "x": 0,
+            "y": 0
+          },
+          "lock_progress_ticks": 103
+        },
+        {
+          "tick": 26031,
+          "desired": {
+            "yaw": 0,
+            "pitch": 0.4434011547388472
+          },
+          "current": {
+            "yaw": 0,
+            "pitch": 0.444
+          },
+          "error": {
+            "yaw": 0,
+            "pitch": -0.0005988452611527806
+          },
+          "mouse_delta": {
+            "x": 0,
+            "y": 0
+          },
+          "lock_progress_ticks": 112
+        },
+        {
+          "tick": 26037,
+          "desired": {
+            "yaw": 0,
+            "pitch": 0.4434011547388472
+          },
+          "current": {
+            "yaw": 0,
+            "pitch": 0.444
+          },
+          "error": {
+            "yaw": 0,
+            "pitch": -0.0005988452611527806
+          },
+          "mouse_delta": {
+            "x": 0,
+            "y": 0
+          },
+          "lock_progress_ticks": 118
+        }
+      ],
+      "locked_tick": 26046
+    }
+  ],
+  "shots": [
+    {
+      "index": 1,
+      "request_id": 1,
+      "attack_id": 17,
+      "fire_event_id": 44,
+      "fire_tick": 25566,
+      "impact_tick": 25585,
+      "impact_event_id": 45,
+      "helicopter_health": 66,
+      "ammo_remaining": 5,
+      "same_tick_event_on_both_clients": true
+    },
+    {
+      "index": 2,
+      "request_id": 2,
+      "attack_id": 18,
+      "fire_event_id": 47,
+      "fire_tick": 25696,
+      "impact_tick": 25715,
+      "impact_event_id": 50,
+      "helicopter_health": 32,
+      "ammo_remaining": 4,
+      "same_tick_event_on_both_clients": true
+    },
+    {
+      "index": 3,
+      "request_id": 3,
+      "attack_id": 20,
+      "fire_event_id": 52,
+      "fire_tick": 26060,
+      "impact_tick": 26079,
+      "impact_event_id": 53,
+      "helicopter_health": 0,
+      "ammo_remaining": 3,
+      "same_tick_event_on_both_clients": true
+    }
+  ],
+  "dual_welcome": {
+    "rider": {
+      "player_id": 9,
+      "seat": "rider",
+      "solo_mode": false
+    },
+    "gunner": {
+      "player_id": 10,
+      "seat": "gunner",
+      "solo_mode": false
+    }
+  },
+  "dual_running_tick": {
+    "rider": 24894,
+    "gunner": 24894
+  },
+  "pointer_lock": {
+    "href": "http://127.0.0.1:8080/?server=ws%3A%2F%2F127.0.0.1%3A3102%2Fws",
+    "focused": true,
+    "pointer_locked": true,
+    "canvas": {
+      "width": 1280,
+      "height": 657,
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "width": 1280,
+        "height": 657
+      },
+      "webgl2": true,
+      "version": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+    }
+  },
+  "first_server_lock": {
+    "tick": 25554,
+    "progress_ticks": 120,
+    "locked": true,
+    "can_fire": true,
+    "target": {
+      "x": 0,
+      "y": 8,
+      "z": 16
+    }
+  },
+  "finished": {
+    "tick": 26079,
+    "rider_result": "riders_victory",
+    "gunner_result": "riders_victory",
+    "rider_bike_health": 50,
+    "gunner_bike_health": 50,
+    "rider_helicopter_health": 0,
+    "gunner_helicopter_health": 0,
+    "event_id": 54,
+    "event_tick": 26079,
+    "both_ready_cleared": true
+  },
+  "rematch_countdown": {
+    "rider": 5,
+    "gunner": 5
+  },
+  "rematch_running": {
+    "rider_tick": 26550,
+    "gunner_tick": 26550,
+    "bike_health": 100,
+    "helicopter_health": 100,
+    "ammo": 6
+  },
+  "solo": {
+    "welcome": {
+      "player_id": 11,
+      "seat": "rider",
+      "solo_mode": true
+    },
+    "seat_after_switch": "gunner",
+    "phase": "running",
+    "bike_health": 100,
+    "helicopter_health": 100,
+    "ammo": 6,
+    "runtime_errors": []
+  },
+  "client_errors": {
+    "rider": [],
+    "gunner": [],
+    "solo": [],
+    "rider_console_errors": [],
+    "gunner_console_errors": [],
+    "solo_console_errors": []
+  },
+  "canvas_debug": {
+    "solo": {
+      "href": "http://127.0.0.1:8080/?solo=1&server=ws%3A%2F%2F127.0.0.1%3A3102%2Fws",
+      "focused": true,
+      "pointer_locked": false,
+      "canvas": {
+        "width": 1280,
+        "height": 657,
+        "rect": {
+          "x": 0,
+          "y": 0,
+          "width": 1280,
+          "height": 657
+        },
+        "webgl2": true,
+        "version": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+      }
+    }
+  }
+}
