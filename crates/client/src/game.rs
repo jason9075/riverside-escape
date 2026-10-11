@@ -13,10 +13,11 @@ use riverside_common::{
     CoverKind, FIXED_DT_SECONDS, FireRejectionReason, GUNNER_LOCK_CONE_HALF_ANGLE_DEGREES,
     GUNNER_LOCK_TICKS, GUNNER_PITCH_MAX_RADIANS, GUNNER_PITCH_MIN_RADIANS, GUNNER_STARTING_AMMO,
     GamePhase, GunnerInput, HELICOPTER_ALTITUDE_M, HELICOPTER_STARTING_HEALTH, HelicopterSnapshot,
-    MatchResult, OBSTACLES, ObstacleKind, PlayerMissileSnapshot, REQUIRED_SEATS,
-    ROAD_STRAIGHT_LENGTH_M, ROCKET_BLAST_RADIUS_M, RiderInput, RiderInputSample, RiderPrediction,
-    RoadPieceKind, RocketSnapshot, SIMULATION_HZ, SeatKind, SeatStatus, SnapshotInterpolator,
-    WorldPosition, WorldSnapshot, evaluate_gunner_aim, riverside_course,
+    MatchResult, MatchVictoryReason, OBSTACLES, ObstacleKind, PlayerMissileSnapshot,
+    REQUIRED_SEATS, ROAD_STRAIGHT_LENGTH_M, ROCKET_BLAST_RADIUS_M, RiderInput, RiderInputSample,
+    RiderPrediction, RoadPieceKind, RoadSection, RocketSnapshot, SIMULATION_HZ, SeatKind,
+    SeatStatus, SnapshotInterpolator, WorldPosition, WorldSnapshot, evaluate_gunner_aim,
+    riverside_course,
 };
 
 use crate::network::NetworkClient;
@@ -82,6 +83,12 @@ pub struct GameSession {
     pub gunner_can_fire: bool,
     pub fire_cooldown_ticks_remaining: u16,
     pub match_result: Option<MatchResult>,
+    pub match_victory_reason: Option<MatchVictoryReason>,
+    pub route_section: RoadSection,
+    pub route_distance_m: f32,
+    pub route_checkpoints_passed: u8,
+    pub route_checkpoints_total: u8,
+    pub route_length_m: f32,
     pub combat_notice_secs: f32,
     pub last_combat_event: Option<CombatEvent>,
     pub explosion_position: Option<WorldPosition>,
@@ -159,6 +166,12 @@ impl Default for GameSession {
             gunner_can_fire: false,
             fire_cooldown_ticks_remaining: 0,
             match_result: None,
+            match_victory_reason: None,
+            route_section: RoadSection::OpenRiverside,
+            route_distance_m: 0.0,
+            route_checkpoints_passed: 0,
+            route_checkpoints_total: 0,
+            route_length_m: riverside_course().length_m(),
             combat_notice_secs: 0.0,
             last_combat_event: None,
             explosion_position: None,
@@ -234,6 +247,7 @@ impl GameSession {
         self.last_applied_rider_sequence = ack;
         self.fire_feedback = None;
         self.match_result = None;
+        self.match_victory_reason = None;
         self.combat_notice_secs = 0.0;
         self.last_combat_event = None;
     }
@@ -248,6 +262,11 @@ impl GameSession {
     }
 
     pub fn apply_combat_snapshot(&mut self, snapshot: &WorldSnapshot) {
+        self.route_section = snapshot.route_section;
+        self.route_distance_m = snapshot.route_distance_m;
+        self.route_checkpoints_passed = snapshot.route_checkpoints_passed;
+        self.route_checkpoints_total = snapshot.route_checkpoints_total;
+        self.route_length_m = snapshot.route_length_m;
         self.rocket_hit_count = snapshot.rocket_hit_count;
         self.bike_health = snapshot.bike_health;
         self.helicopter_health = snapshot.helicopter_health;
@@ -258,6 +277,7 @@ impl GameSession {
         self.gunner_can_fire = snapshot.gunner_can_fire;
         self.fire_cooldown_ticks_remaining = snapshot.fire_cooldown_ticks_remaining;
         self.match_result = snapshot.match_result;
+        self.match_victory_reason = snapshot.match_victory_reason;
         if snapshot.phase != GamePhase::Running {
             self.helicopter = None;
             self.rocket = None;
@@ -312,8 +332,12 @@ impl GameSession {
                 self.combat_notice_secs = 1.6;
                 self.last_combat_event = Some(event);
             }
-            CombatEventKind::MatchFinished { result } => {
+            CombatEventKind::MatchFinished {
+                result,
+                victory_reason,
+            } => {
                 self.match_result = Some(result);
+                self.match_victory_reason = victory_reason;
                 self.combat_notice_secs = 3.0;
                 self.last_combat_event = Some(event);
             }
@@ -614,6 +638,52 @@ pub fn setup_scene(
         }
     }
 
+    let checkpoint_gate_material = materials.add(StandardMaterial {
+        base_color: Color::srgb(0.14, 0.82, 0.74),
+        emissive: LinearRgba::rgb(0.12, 0.55, 0.46),
+        metallic: 0.05,
+        perceptual_roughness: 0.52,
+        ..default()
+    });
+    let finish_gate_material = materials.add(StandardMaterial {
+        base_color: Color::srgb(1.0, 0.58, 0.16),
+        emissive: LinearRgba::rgb(0.65, 0.22, 0.035),
+        metallic: 0.04,
+        perceptual_roughness: 0.48,
+        ..default()
+    });
+    let gate_post_mesh = meshes.add(Cuboid::new(0.28, 4.3, 0.42));
+    let gate_beam_mesh = meshes.add(Cuboid::new(4.4, 0.34, 0.42));
+    for (distance_m, material) in course
+        .checkpoints_m()
+        .iter()
+        .copied()
+        .map(|distance| (distance, checkpoint_gate_material.clone()))
+        .chain(std::iter::once((
+            course.finish_distance_m(),
+            finish_gate_material,
+        )))
+    {
+        let gate = course.point_at(distance_m);
+        let right = Vec3::new(gate.yaw.cos(), 0.0, gate.yaw.sin());
+        let rotation = Quat::from_rotation_y(-gate.yaw);
+        for side in [-1.0, 1.0] {
+            commands.spawn((
+                Mesh3d(gate_post_mesh.clone()),
+                MeshMaterial3d(material.clone()),
+                Transform::from_translation(
+                    Vec3::new(gate.center_x, 2.15, gate.center_z) + right * side * 2.05,
+                )
+                .with_rotation(rotation),
+            ));
+        }
+        commands.spawn((
+            Mesh3d(gate_beam_mesh.clone()),
+            MeshMaterial3d(material),
+            Transform::from_xyz(gate.center_x, 4.3, gate.center_z).with_rotation(rotation),
+        ));
+    }
+
     let landmark_spacing = 80.0;
     let mut landmark_distance = 28.0;
     let mut index = 0;
@@ -792,8 +862,13 @@ pub fn setup_scene(
         TextColor(Color::srgba(0.94, 0.96, 0.87, 0.92)),
         Node {
             position_type: PositionType::Absolute,
+            width: px(24),
+            height: px(24),
             left: percent(50),
             top: percent(50),
+            margin: UiRect::all(px(-12)),
+            justify_content: JustifyContent::Center,
+            align_items: AlignItems::Center,
             ..default()
         },
         Reticle,
@@ -1283,20 +1358,31 @@ fn combat_status(session: &GameSession) -> String {
                     "MISSILE MISSED  |  Target not reached".to_owned()
                 };
             }
-            CombatEventKind::MatchFinished { result } => {
-                return match result {
-                    MatchResult::RidersVictory => "VICTORY  |  Helicopter destroyed".into(),
-                    MatchResult::RidersDefeat => "DEFEAT  |  Bike disabled".into(),
+            CombatEventKind::MatchFinished {
+                result,
+                victory_reason,
+            } => {
+                return match (result, victory_reason) {
+                    (MatchResult::RidersVictory, Some(MatchVictoryReason::Escaped)) => {
+                        "VICTORY  |  Escape complete".into()
+                    }
+                    (MatchResult::RidersVictory, _) => "VICTORY  |  Helicopter destroyed".into(),
+                    (MatchResult::RidersDefeat, _) => "DEFEAT  |  Bike disabled".into(),
                 };
             }
             _ => {}
         }
     }
     if session.phase == GamePhase::Finished {
-        return match session.match_result {
-            Some(MatchResult::RidersVictory) => "VICTORY  |  Press R to ready again".into(),
-            Some(MatchResult::RidersDefeat) => "DEFEAT  |  Press R to ready again".into(),
-            None => String::new(),
+        return match (session.match_result, session.match_victory_reason) {
+            (Some(MatchResult::RidersVictory), Some(MatchVictoryReason::Escaped)) => {
+                "VICTORY  |  Escape complete | press R to ready again".into()
+            }
+            (Some(MatchResult::RidersVictory), _) => {
+                "VICTORY  |  Helicopter destroyed | press R to ready again".into()
+            }
+            (Some(MatchResult::RidersDefeat), _) => "DEFEAT  |  Press R to ready again".into(),
+            (None, _) => String::new(),
         };
     }
     if session.phase != GamePhase::Running {
@@ -1443,13 +1529,26 @@ pub(super) fn update_hud(
             GamePhase::Countdown => {
                 format!("Starting in {}...", session.countdown_seconds.unwrap_or(5))
             }
-            GamePhase::Running => "Keep moving together".to_owned(),
-            GamePhase::Finished => match session.match_result {
-                Some(MatchResult::RidersVictory) => {
-                    "VICTORY | both players press R to replay".into()
+            GamePhase::Running => format!(
+                "{} | {} m to escape | checkpoints {}/{}",
+                session.route_section.label(),
+                (session.route_length_m - session.route_distance_m)
+                    .max(0.0)
+                    .round() as u32,
+                session.route_checkpoints_passed,
+                session.route_checkpoints_total,
+            ),
+            GamePhase::Finished => match (session.match_result, session.match_victory_reason) {
+                (Some(MatchResult::RidersVictory), Some(MatchVictoryReason::Escaped)) => {
+                    "ESCAPE COMPLETE | both players press R to replay".into()
                 }
-                Some(MatchResult::RidersDefeat) => "DEFEAT | both players press R to replay".into(),
-                None => "Finished | press R to ready for another round".into(),
+                (Some(MatchResult::RidersVictory), _) => {
+                    "HELICOPTER DESTROYED | both players press R to replay".into()
+                }
+                (Some(MatchResult::RidersDefeat), _) => {
+                    "DEFEAT | both players press R to replay".into()
+                }
+                (None, _) => "Finished | press R to ready for another round".into(),
             },
         }
     };
@@ -1460,19 +1559,19 @@ pub(super) fn update_hud(
     );
     let controls = match (session.local_seat, session.solo_mode, session.is_connected) {
         (SeatKind::Rider, true, _) => {
-            "LMB pedal · Space brake · A/D steer\nR ready both · V switch role · F3 diagnostics"
+            "LMB pedal | Space brake | A/D steer\nR ready both | V switch role | F3 diagnostics"
         }
         (SeatKind::Gunner, true, _) => {
-            "Mouse aim · hold RMB to lock · LMB fire\nR ready both · V switch role · F3 diagnostics"
+            "Mouse aim | hold RMB to lock | LMB fire\nR ready both | V switch role | F3 diagnostics"
         }
         (SeatKind::Rider, false, false) => {
-            "LMB pedal · Space brake · A/D steer\nRMB free look · F3 diagnostics"
+            "LMB pedal | Space brake | A/D steer\nRMB free look | F3 diagnostics"
         }
         (SeatKind::Rider, false, true) => {
-            "LMB pedal · Space brake · A/D steer\nRMB free look · R ready · F3 diagnostics"
+            "LMB pedal | Space brake | A/D steer\nRMB free look | R ready | F3 diagnostics"
         }
         (SeatKind::Gunner, false, _) => {
-            "Mouse aim · hold RMB to lock · LMB fire\nR ready · Esc release pointer · F3 diagnostics"
+            "Mouse aim | hold RMB to lock | LMB fire\nR ready | Esc release pointer | F3 diagnostics"
         }
     };
     let lock_progress = session.gunner_lock_progress_ticks as f32 / GUNNER_LOCK_TICKS as f32;
@@ -1487,7 +1586,7 @@ pub(super) fn update_hud(
             "locking"
         };
         format!(
-            "Bike {:>3}/100  Heli {:>3}/100\nAmmo {}/{} · Server {server_lock} ({:.0}%) · {}",
+            "Bike {:>3}/100  Heli {:>3}/100\nAmmo {}/{} | Server {server_lock} ({:.0}%) | {}",
             session.bike_health,
             session.helicopter_health,
             session.gunner_ammo,
@@ -1517,12 +1616,12 @@ pub(super) fn update_hud(
     };
     let diagnostics = if session.show_diagnostics && session.is_connected {
         format!(
-            "\n\n[F3] Server {} / Client {} · Rider ack {} · pending {} (max {})\
+            "\n\n[F3] Server {} / Client {} | Rider ack {} | pending {} (max {})\
              \nSame-tick error {:.3} m / {:.2}° (max {:.3} m / {:.2}°)\
-             \nReplayed {} ticks ({} unacked) · history misses {}\
+             \nReplayed {} ticks ({} unacked) | history misses {}\
              \nPred↔snapshot {:.2} m (max {:.2}; ticks differ)\
-             \nRender correction/frame {:.3} m (max {:.3}) · Gunner lag {:.1} ms\
-             \nMax app frame {:.1} ms · predicted lock {:.0}%",
+             \nRender correction/frame {:.3} m (max {:.3}) | Gunner lag {:.1} ms\
+             \nMax app frame {:.1} ms | predicted lock {:.0}%",
             session.server_tick,
             session.client_tick,
             session.last_applied_rider_sequence,

@@ -1,7 +1,7 @@
 # 工程狀態
 
 - 更新日期：2026-10-11
-- 目前階段：P0／P1／P2／P3 原型工程驗收通過；P4 進行中，前兩批路線與橋下掩體已完成工程驗證
+- 目前階段：P0–P4 原型工程驗證完成；P4 三批功能、測試與雙瀏覽器整合驗證均已完成，待 PM 產品驗收
 - 範圍：P0／P1／P2 是已驗收基線；P3 依 PM 最新決策完成，參數仍屬可調原型配置
 
 ## Git 基線與提交狀態
@@ -55,7 +55,7 @@
 - Client 預測與 Server 權威皆呼叫同一 `BikeState::step`，碰撞查詢直接使用同一份 `riverside_course()`。固定步長受控 Rider 以持續踩踏及轉向追蹤全線，在避開原有水泥障礙後走到距離終點 3 m 內：**1,197.9 m／110.6 s／6,633 ticks**。這是工程控制器路線可通行證據，終點授權與正式逃脫時間會在檢查點／結算批次完成後重測。
 - 新增測試涵蓋三段順序與路線長度、全部道路模組接縫、彎道兩側路面邊界及完整固定步長路線。`cargo test --workspace` 通過 31 項（Client 3、common 7、reconciliation 6、Server 15）；WASM target `cargo check`、workspace Clippy 與 Trunk build 通過。
 - 遠端 Headless Chromium／SwiftShader 實際載入 WebGL2 場景，能看到 P4 路面與彎道；固定 100 ms RTT 雙 Client 的 P3 戰鬥回歸也通過，三發事件與勝利快照雙端一致、重賽重設及 Solo Ready／換座正常，三個 Client 無 JS 或 console error。此回歸讓 Rider 停在起點以分離移動對瞄準的影響；連續踩踏的原 P3 測試腳本會撞上舊水泥障礙並在第二發時失鎖，因此該腳本不作本次瞄準穩定性的驗收依據。
-- P4 固定 100 ms RTT 雙端 WASM 的區段、橋下掩體與逃脫事件一致性留待後兩批整合後驗證；此批不代表實體 GPU、正式平衡或最終 3–5 分鐘局長已驗收。可重現資料與起點畫面見 [`P4 路線驗證`](verification/p4/README.md)。
+- 固定 100 ms RTT 的雙端 WASM 路線、橋下掩體與逃脫整合驗收在 P4 第三批完成；本批仍不代表實體 GPU、正式平衡或玩家體驗已驗收。可重現資料與畫面見 [`P4 路線驗證`](verification/p4/README.md)。
 - 本批程式、測試、驗證紀錄與狀態一併獨立提交；commit hash 由 Git 歷史記錄。
 
 ## P4 第二批：橋下掩體與攻擊碰撞
@@ -63,8 +63,18 @@
 - 共用課程資料在 400 m 橋下段生成 13 個橋面與 26 個橋墩碰撞體；橋面寬 13 m、底部高 4.9 m、頂部高 5.7 m，沿路面分跨鋪設。Client 依相同資料放置橋面和既有橋墩模型，Server 不載入渲染素材。
 - Gunner 視線／鎖定與玩家飛彈路徑會被橋面或橋墩遮擋；Server 在橋下取消直升機預告並轉入重新定位，敵方火箭撞上橋面只記未命中而不傷車。直升機移動也會檢查下一段路徑，避免穿入碰撞體。道路高度以下的車道不會被橋面阻擋。
 - 新增 common 與 Server 測試，覆蓋橋面 LoS／射線交點、可通行車道、掩體中的鎖定與開火拒絕、攻擊預告取消、雙方飛彈撞橋不造成傷害，以及直升機不穿越橋面。Workspace 共 **35 項**（Client 3、common 8、reconciliation 6、Server 18）；格式檢查、WASM target check、workspace Clippy、Server build 與 Trunk build 通過。
-- 第一批的固定 100 ms RTT P3 戰鬥回歸仍證明開闊路段雙端事件、勝利和重賽基線；它沒有駛入橋下，不能當成掩體瀏覽器驗收。橋下實際 WASM 場景、最終區段／逃脫雙端一致性與 100 ms RTT 整合回歸留待 P4 最後一批；此批也不代表實體 GPU 或戰鬥平衡驗收。測試範圍見 [`P4 掩體驗證`](verification/p4/README.md)。
+- 第一批的固定 100 ms RTT P3 戰鬥回歸沒有駛入橋下，因此不作掩體驗收依據；橋下 WASM 場景、區段路線及逃脫整合已在 P4 第三批完成。此批仍不代表實體 GPU 或戰鬥平衡驗收；測試範圍見 [`P4 掩體驗證`](verification/p4/README.md)。
 - 本批程式、測試與工程紀錄獨立提交；commit hash 由 Git 歷史記錄。
+
+## P4 第三批：檢查點、權威逃脫與完整路線驗收
+
+- Server 記錄兩個依序通過的檢查點，僅接受在道路寬度內、沿路線前進方向的實際車體線段穿越；跳過、倒退、從檢查點側邊通過或直接越過終點均不會逃脫。通過兩點後再正向越過終點才結算 `riders_victory / escaped`；直升機擊落仍使用獨立的 `helicopter_destroyed` 勝利原因，同 Tick 腳踏車生命歸零優先判負。
+- 路線 HUD 顯示目前區段、剩餘距離及檢查點進度；場景加入青色檢查點拱門與金色終點拱門。Finished 後 Rider／Gunner 分別顯示逃脫或擊落直升機。重玩會清除路線進度、勝利原因、傷害與彈藥狀態。Gunner 瞄準十字與鎖定環置於 1280 × 657 視窗中央；已檢視最新 WebGL2 截圖，兩者同心，HUD 分隔符使用 ASCII 以避免字型缺字。
+- 固定步長全路線控制測試到達 1,199.8 m；20 Hz Rider 輸入加上合成 100 ms 回饋延遲的權威 Server 測試在 **121.7 秒／7,304 ticks** 逃脫。這是受控工程路線時間，不是玩家平衡數據。
+- 遠端 Headless Chromium／SwiftShader WebGL2 的兩個 WASM Client 透過 50 ms 單向延遲代理（固定 100 ms RTT）實際走完三段路線。兩端在相同 Event ID 352 與 Server Tick 173,884 收到逃脫事件；路線長 1,200.7 m、通過兩個檢查點，逃脫時腳踏車 75 HP，Server Tick 換算運行時間 **208.5 秒**。橋下開火請求以相同 Event ID 333 被兩端拒絕為 `obstructed`，彈藥仍為 6；三個區段轉換、檢查點、勝利與重玩狀態都記入 JSON 報告。雙 Client 在 section 邊界的最新接收 Tick 可能因固定 RTT 短暫不同，完成事件的 ID／Tick 則一致。
+- 重玩後路段、距離與檢查點回到起點／0，車輛與直升機生命均為 100，彈藥回到 6；Solo `R` 強制 Ready／開局、`V` 切到 Gunner 後維持 Running，沒有補給或瀏覽器錯誤。最新報告與截圖見 [`P4 完整驗證`](verification/p4/README.md)。
+- 最終 Workspace 通過 39 項測試（Client 3、common 9、reconciliation 6、Server 21）、`cargo fmt --all -- --check`、WASM target check、workspace Clippy、Server build 與 Trunk build。固定 RTT 測試未注入 jitter 或 packet loss，SwiftShader 也不代表實體 GPU、最終平衡或正式玩家體驗。
+- 本批程式、測試、報告與畫面證據獨立提交；commit hash 由 Git 歷史記錄。
 
 ## 遠端開發與驗證環境
 
@@ -232,6 +242,7 @@ Server 現在在每個快照附上 `last_applied_rider_sequence`。Client 依確
 
 - P3 已完成實作、必要驗證與功能 commit，待 PM 工程驗收；本批生命值、傷害、鎖定與武器值仍是 PM 可調原型配置，不是正式平衡結論。
 - 固定 100 ms RTT 的遠端 SwiftShader／headless 驗證通過；jitter、packet loss、實體 GPU、其他瀏覽器與完整玩家體驗仍待後續驗收。
+- P4 路線、橋下掩體與逃脫功能已完成工程驗證；正式戰鬥平衡及玩家體驗仍待 PM／玩家驗收。
 - 控制器尚無量化轉彎測試；依研究對照先驗證問題，再決定是否調整轉向曲線、輸入漸變或視覺傾斜，不擴寫控制器。
 - 完整 Lobby、重連與正式斷線規則留待後續階段。
 

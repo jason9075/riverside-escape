@@ -1,0 +1,132 @@
+{
+  "fixed_rtt_ms": 100,
+  "one_way_delay_ms": 50,
+  "route_length_m": 1200.7,
+  "section_boundaries_m": {
+    "open_riverside_end": 401.9,
+    "bridge_underpass_end": 801.9
+  },
+  "section_transitions": [
+    {
+      "tick": 161376,
+      "section": "open_riverside",
+      "distance_m": 0,
+      "rider_and_gunner_same_tick": true
+    },
+    {
+      "tick": 164775,
+      "section": "bridge_underpass",
+      "distance_m": 401.9,
+      "rider_and_gunner_same_tick": false
+    },
+    {
+      "tick": 170763,
+      "section": "narrow_bends",
+      "distance_m": 802.2,
+      "rider_and_gunner_same_tick": true
+    }
+  ],
+  "checkpoints": [
+    {
+      "tick": 164697,
+      "passed": 1,
+      "distance_m": 394.3
+    },
+    {
+      "tick": 170718,
+      "passed": 2,
+      "distance_m": 793.9
+    }
+  ],
+  "bridge_fire_attempts": [
+    {
+      "request_id": 1,
+      "reason": "obstructed",
+      "tick": 169026
+    }
+  ],
+  "started": {
+    "rider_tick": 161376,
+    "gunner_tick": 161376
+  },
+  "bridge_fire_rejection": {
+    "tick": 169026,
+    "event_id": 333,
+    "reason": "obstructed",
+    "same_event_on_both_clients": true,
+    "gunner_ammo": 6,
+    "lock_ticks": 0
+  },
+  "escape": {
+    "event_id": 352,
+    "tick": 173886,
+    "event_tick": 173884,
+    "reason": "escaped",
+    "same_event_on_both_clients": true,
+    "route_length_m": 1200.7195,
+    "rider": {
+      "result": "riders_victory",
+      "reason": "escaped",
+      "checkpoints_passed": 2,
+      "bike_health": 75
+    },
+    "gunner": {
+      "result": "riders_victory",
+      "reason": "escaped",
+      "checkpoints_passed": 2,
+      "bike_health": 75
+    },
+    "elapsed_seconds_from_running": 208.5,
+    "browser_runtime_errors": {
+      "rider": [],
+      "gunner": []
+    }
+  },
+  "elapsed_seconds_from_server_tick": 208.5,
+  "replay_reset": {
+    "rider_tick": 174081,
+    "gunner_tick": 174081,
+    "route_section": "open_riverside",
+    "route_distance_m": 0,
+    "checkpoints_passed": 0,
+    "match_result": null,
+    "victory_reason": null,
+    "bike_health": 100,
+    "helicopter_health": 100,
+    "ammo": 6
+  },
+  "replay_running": {
+    "rider_tick": 174378,
+    "gunner_tick": 174378
+  },
+  "solo": {
+    "seat": "gunner",
+    "phase": "running",
+    "route_section": "open_riverside",
+    "route_distance_m": 0,
+    "checkpoints_passed": 0,
+    "bike_health": 100,
+    "ammo": 6,
+    "runtime_errors": []
+  },
+  "client_errors": {
+    "dual": {
+      "rider": {
+        "exceptions": [],
+        "console_errors": []
+      },
+      "gunner": {
+        "exceptions": [],
+        "console_errors": []
+      }
+    },
+    "solo_exceptions": [],
+    "solo_console_errors": []
+  },
+  "canvas_debug": {
+    "width": 1280,
+    "height": 657,
+    "webgl2": true,
+    "version": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+  }
+}

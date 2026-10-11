@@ -22,6 +22,7 @@ pub const BRIDGE_DECK_HALF_WIDTH_M: f32 = 6.5;
 pub const BRIDGE_DECK_BOTTOM_M: f32 = 4.9;
 pub const BRIDGE_DECK_TOP_M: f32 = 5.7;
 pub const BRIDGE_PIER_OFFSET_M: f32 = 6.4;
+pub const ESCAPE_FINISH_MARGIN_M: f32 = 1.0;
 pub const FIXED_DT: f32 = 1.0 / SIMULATION_HZ as f32;
 pub const FIXED_DT_SECONDS: f64 = 1.0 / SIMULATION_HZ as f64;
 pub const INTERPOLATION_DELAY_TICKS: u64 = SIMULATION_HZ as u64 / SNAPSHOT_HZ as u64;
@@ -111,6 +112,13 @@ pub enum GamePhase {
 pub enum MatchResult {
     RidersVictory,
     RidersDefeat,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MatchVictoryReason {
+    HelicopterDestroyed,
+    Escaped,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -287,6 +295,8 @@ pub enum CombatEventKind {
     },
     MatchFinished {
         result: MatchResult,
+        #[serde(default)]
+        victory_reason: Option<MatchVictoryReason>,
     },
 }
 
@@ -425,6 +435,16 @@ pub struct WorldSnapshot {
     pub seats: BTreeMap<SeatKind, SeatStatus>,
     pub countdown_seconds: Option<u8>,
     pub bike: BikeState,
+    #[serde(default)]
+    pub route_section: RoadSection,
+    #[serde(default)]
+    pub route_distance_m: f32,
+    #[serde(default)]
+    pub route_checkpoints_passed: u8,
+    #[serde(default)]
+    pub route_checkpoints_total: u8,
+    #[serde(default)]
+    pub route_length_m: f32,
     /// Highest Rider input sequence applied by the simulation up through this snapshot tick.
     #[serde(default)]
     pub last_applied_rider_sequence: u32,
@@ -457,6 +477,8 @@ pub struct WorldSnapshot {
     pub fire_cooldown_ticks_remaining: u16,
     #[serde(default)]
     pub match_result: Option<MatchResult>,
+    #[serde(default)]
+    pub match_victory_reason: Option<MatchVictoryReason>,
 }
 
 fn default_starting_bike_health() -> u16 {
@@ -548,8 +570,10 @@ impl BikeState {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum RoadSection {
+    #[default]
     OpenRiverside,
     BridgeUnderpass,
     NarrowBends,
@@ -631,6 +655,8 @@ pub struct RiversideCourse {
     pieces: Vec<RoadPiece>,
     points: Vec<CoursePoint>,
     cover_volumes: Vec<CoverVolume>,
+    checkpoints_m: Vec<f32>,
+    finish_distance_m: f32,
     length_m: f32,
 }
 
@@ -677,6 +703,7 @@ impl RiversideCourse {
         }
 
         let mut course = builder.finish();
+        course.add_route_markers();
         course.add_bridge_cover();
         course
     }
@@ -691,6 +718,60 @@ impl RiversideCourse {
 
     pub fn cover_volumes(&self) -> &[CoverVolume] {
         &self.cover_volumes
+    }
+
+    pub fn checkpoints_m(&self) -> &[f32] {
+        &self.checkpoints_m
+    }
+
+    pub fn finish_distance_m(&self) -> f32 {
+        self.finish_distance_m
+    }
+
+    /// Returns true only when the bike segment moves forward across this
+    /// route-normal gate and intersects its paved width.
+    pub fn crosses_forward_gate(
+        &self,
+        from_x: f32,
+        from_z: f32,
+        to_x: f32,
+        to_z: f32,
+        distance_m: f32,
+    ) -> bool {
+        let gate = self.point_at(distance_m);
+        let forward_x = gate.yaw.sin();
+        let forward_z = -gate.yaw.cos();
+        let lateral_x = gate.yaw.cos();
+        let lateral_z = gate.yaw.sin();
+        let signed_distance =
+            |x: f32, z: f32| (x - gate.center_x) * forward_x + (z - gate.center_z) * forward_z;
+        let from_along = signed_distance(from_x, from_z);
+        let to_along = signed_distance(to_x, to_z);
+        if from_along > 0.0 || to_along <= 0.0 {
+            return false;
+        }
+        let fraction = -from_along / (to_along - from_along);
+        let crossing_x = from_x + (to_x - from_x) * fraction;
+        let crossing_z = from_z + (to_z - from_z) * fraction;
+        let lateral_offset =
+            (crossing_x - gate.center_x) * lateral_x + (crossing_z - gate.center_z) * lateral_z;
+        lateral_offset.abs() <= TRACK_HALF_WIDTH - BIKE_COLLISION_HALF_WIDTH
+    }
+
+    fn add_route_markers(&mut self) {
+        let section_end = |section: RoadSection, pieces: &[RoadPiece]| {
+            pieces
+                .iter()
+                .filter(|piece| piece.section == section)
+                .map(|piece| piece.start_distance_m + piece.length_m)
+                .max_by(f32::total_cmp)
+        };
+        let open_end = section_end(RoadSection::OpenRiverside, &self.pieces)
+            .expect("the route includes an open riverside section");
+        let bridge_end = section_end(RoadSection::BridgeUnderpass, &self.pieces)
+            .expect("the route includes a bridge underpass section");
+        self.checkpoints_m = vec![open_end - 8.0, bridge_end - 8.0];
+        self.finish_distance_m = (self.length_m - ESCAPE_FINISH_MARGIN_M).max(0.0);
     }
 
     fn add_bridge_cover(&mut self) {
@@ -978,6 +1059,8 @@ impl CourseBuilder {
             pieces: self.pieces,
             points: self.points,
             cover_volumes: Vec::new(),
+            checkpoints_m: Vec::new(),
+            finish_distance_m: 0.0,
             length_m: self.distance_m,
         }
     }
@@ -1088,6 +1171,11 @@ mod course_tests {
         assert_eq!(course.section_at(bends_start), RoadSection::NarrowBends);
         assert!(bridge_start > 390.0 && bridge_start < 410.0);
         assert!(bends_start > 790.0 && bends_start < 810.0);
+        assert_eq!(course.checkpoints_m().len(), 2);
+        assert!(course.checkpoints_m()[0] < course.checkpoints_m()[1]);
+        assert!((course.checkpoints_m()[0] - (bridge_start - 8.0)).abs() < 0.01);
+        assert!((course.checkpoints_m()[1] - (bends_start - 8.0)).abs() < 0.01);
+        assert!((course.finish_distance_m() - (course.length_m() - 1.0)).abs() < 0.01);
 
         let straight_count = course
             .pieces()
@@ -1102,6 +1190,42 @@ mod course_tests {
                 .abs()
                 < 0.01
         );
+    }
+
+    #[test]
+    fn route_gates_require_forward_crossing_inside_the_road_width() {
+        let course = riverside_course();
+        let gate_distance = course.checkpoints_m()[0];
+        let gate = course.point_at(gate_distance);
+        let forward = (gate.yaw.sin(), -gate.yaw.cos());
+        let lateral = (gate.yaw.cos(), gate.yaw.sin());
+        let position = |along: f32, across: f32| {
+            (
+                gate.center_x + forward.0 * along + lateral.0 * across,
+                gate.center_z + forward.1 * along + lateral.1 * across,
+            )
+        };
+        let before = position(-0.5, 0.0);
+        let after = position(0.5, 0.0);
+        assert!(course.crosses_forward_gate(before.0, before.1, after.0, after.1, gate_distance));
+        assert!(!course.crosses_forward_gate(after.0, after.1, before.0, before.1, gate_distance));
+        let outside_before = position(-0.5, 2.2);
+        let outside_after = position(0.5, 2.2);
+        assert!(!course.crosses_forward_gate(
+            outside_before.0,
+            outside_before.1,
+            outside_after.0,
+            outside_after.1,
+            gate_distance
+        ));
+        let same_side = position(-0.25, 0.0);
+        assert!(!course.crosses_forward_gate(
+            before.0,
+            before.1,
+            same_side.0,
+            same_side.1,
+            gate_distance
+        ));
     }
 
     #[test]

@@ -21,12 +21,13 @@ use riverside_common::{
     GUNNER_LOCK_TICKS, GUNNER_STARTING_AMMO, GamePhase, GunnerInput, HELICOPTER_ALTITUDE_M,
     HELICOPTER_CHASE_DISTANCE_M, HELICOPTER_CHASE_TICKS, HELICOPTER_REPOSITION_OFFSET_M,
     HELICOPTER_REPOSITION_TICKS, HELICOPTER_SPEED_MPS, HELICOPTER_STARTING_HEALTH, HelicopterPhase,
-    HelicopterSnapshot, MAX_INPUT_TICK_AGE, MAX_INPUT_TICK_FUTURE, MatchResult,
+    HelicopterSnapshot, MAX_INPUT_TICK_AGE, MAX_INPUT_TICK_FUTURE, MatchResult, MatchVictoryReason,
     PLAYER_MISSILE_DAMAGE, PLAYER_MISSILE_HIT_RADIUS_M, PLAYER_MISSILE_LIFETIME_TICKS,
     PLAYER_MISSILE_SPEED_MPS, PlayerMissileSnapshot, REQUIRED_SEATS, ROCKET_AIM_LEAD_SECONDS,
-    ROCKET_BLAST_RADIUS_M, ROCKET_FLIGHT_TICKS, ROCKET_WARNING_TICKS, RiderInput, RocketSnapshot,
-    RocketWarning, SIMULATION_HZ, SNAPSHOT_HZ, SeatKind, SeatStatus, ServerMessage, WorldPosition,
-    WorldSnapshot, evaluate_gunner_aim, first_cover_intersection, line_of_sight_blocked,
+    ROCKET_BLAST_RADIUS_M, ROCKET_FLIGHT_TICKS, ROCKET_WARNING_TICKS, RiderInput, RoadSection,
+    RocketSnapshot, RocketWarning, SIMULATION_HZ, SNAPSHOT_HZ, SeatKind, SeatStatus, ServerMessage,
+    WorldPosition, WorldSnapshot, evaluate_gunner_aim, first_cover_intersection,
+    line_of_sight_blocked, riverside_course,
 };
 use tokio::{net::TcpListener, runtime::Builder, sync::broadcast};
 
@@ -58,6 +59,11 @@ struct Room {
     gunner_ammo: u8,
     fire_cooldown_until_tick: u64,
     match_result: Option<MatchResult>,
+    match_victory_reason: Option<MatchVictoryReason>,
+    route_section: RoadSection,
+    route_distance_m: f32,
+    route_checkpoints_passed: usize,
+    escape_finish_crossed: bool,
     helicopter: Option<HelicopterSnapshot>,
     rocket: Option<RocketSnapshot>,
     helicopter_phase_deadline_tick: u64,
@@ -101,6 +107,11 @@ impl Room {
             gunner_ammo: GUNNER_STARTING_AMMO,
             fire_cooldown_until_tick: 0,
             match_result: None,
+            match_victory_reason: None,
+            route_section: RoadSection::OpenRiverside,
+            route_distance_m: 0.0,
+            route_checkpoints_passed: 0,
+            escape_finish_crossed: false,
             helicopter: None,
             rocket: None,
             helicopter_phase_deadline_tick: 0,
@@ -135,6 +146,11 @@ impl Room {
                 .collect(),
             countdown_seconds,
             bike: self.bike,
+            route_section: self.route_section,
+            route_distance_m: self.route_distance_m,
+            route_checkpoints_passed: self.route_checkpoints_passed as u8,
+            route_checkpoints_total: riverside_course().checkpoints_m().len() as u8,
+            route_length_m: riverside_course().length_m(),
             last_applied_rider_sequence: self.last_applied_rider_sequence,
             helicopter: self.helicopter,
             rocket: self.rocket,
@@ -162,6 +178,46 @@ impl Room {
                 .saturating_sub(self.tick)
                 .min(u64::from(u16::MAX)) as u16,
             match_result: self.match_result,
+            match_victory_reason: self.match_victory_reason,
+        }
+    }
+
+    fn reset_route_progress(&mut self) {
+        self.route_section = RoadSection::OpenRiverside;
+        self.route_distance_m = 0.0;
+        self.route_checkpoints_passed = 0;
+        self.escape_finish_crossed = false;
+    }
+
+    fn update_route_progress(&mut self, previous_bike: BikeState) {
+        let course = riverside_course();
+        let projection = course.project(self.bike.x, self.bike.z);
+        self.route_section = projection.section;
+        self.route_distance_m = projection.distance_m;
+
+        while let Some(&checkpoint_m) = course.checkpoints_m().get(self.route_checkpoints_passed) {
+            if course.crosses_forward_gate(
+                previous_bike.x,
+                previous_bike.z,
+                self.bike.x,
+                self.bike.z,
+                checkpoint_m,
+            ) {
+                self.route_checkpoints_passed += 1;
+            } else {
+                break;
+            }
+        }
+        if self.route_checkpoints_passed == course.checkpoints_m().len()
+            && course.crosses_forward_gate(
+                previous_bike.x,
+                previous_bike.z,
+                self.bike.x,
+                self.bike.z,
+                course.finish_distance_m(),
+            )
+        {
+            self.escape_finish_crossed = true;
         }
     }
 
@@ -253,7 +309,9 @@ impl Room {
         self.gunner_ammo = GUNNER_STARTING_AMMO;
         self.fire_cooldown_until_tick = 0;
         self.match_result = None;
+        self.match_victory_reason = None;
         self.bike = BikeState::default();
+        self.reset_route_progress();
         self.helicopter = None;
         self.rocket = None;
         self.helicopter_phase_deadline_tick = 0;
@@ -262,12 +320,14 @@ impl Room {
     }
 
     fn begin_running(&mut self) {
+        self.reset_route_progress();
         self.bike_health = BIKE_STARTING_HEALTH;
         self.helicopter_health = HELICOPTER_STARTING_HEALTH;
         self.gunner_ammo = GUNNER_STARTING_AMMO;
         self.fire_cooldown_until_tick = self.tick;
         self.player_missile = None;
         self.match_result = None;
+        self.match_victory_reason = None;
         self.rocket_hit_count = 0;
         self.clear_gunner_lock();
         self.gunner_input = GunnerInput::default();
@@ -339,7 +399,9 @@ impl Room {
                 self.gunner_input = GunnerInput::default();
                 self.last_gunner_input_at = None;
             }
+            let previous_bike = self.bike;
             self.bike.step(self.rider_input, 1.0 / SIMULATION_HZ as f32);
+            self.update_route_progress(previous_bike);
             self.last_applied_rider_sequence = self
                 .seats
                 .get(&SeatKind::Rider)
@@ -691,18 +753,27 @@ impl Room {
         if self.phase != GamePhase::Running {
             return;
         }
-        let result = if self.bike_health == 0 {
-            Some(MatchResult::RidersDefeat)
+        let (result, victory_reason) = if self.bike_health == 0 {
+            (Some(MatchResult::RidersDefeat), None)
         } else if self.helicopter_health == 0 {
-            Some(MatchResult::RidersVictory)
+            (
+                Some(MatchResult::RidersVictory),
+                Some(MatchVictoryReason::HelicopterDestroyed),
+            )
+        } else if self.escape_finish_crossed {
+            (
+                Some(MatchResult::RidersVictory),
+                Some(MatchVictoryReason::Escaped),
+            )
         } else {
-            None
+            (None, None)
         };
         let Some(result) = result else {
             return;
         };
         self.phase = GamePhase::Finished;
         self.match_result = Some(result);
+        self.match_victory_reason = victory_reason;
         self.countdown_deadline = None;
         for slot in self.seats.values_mut() {
             slot.ready = false;
@@ -717,7 +788,10 @@ impl Room {
         self.helicopter = None;
         self.push_combat_event(
             0,
-            CombatEventKind::MatchFinished { result },
+            CombatEventKind::MatchFinished {
+                result,
+                victory_reason,
+            },
             WorldPosition {
                 x: self.bike.x,
                 y: 0.0,
@@ -1168,9 +1242,10 @@ mod tests {
         CombatEventKind, CoverKind, FireRejectionReason, GUNNER_AIM_ORIGIN_HEIGHT_M,
         GUNNER_AIM_ORIGIN_REAR_M, GUNNER_LOCK_GRACE_TICKS, GUNNER_LOCK_TICKS, GUNNER_STARTING_AMMO,
         GamePhase, GunnerInput, HELICOPTER_CHASE_TICKS, HELICOPTER_STARTING_HEALTH,
-        HelicopterPhase, MatchResult, PLAYER_MISSILE_DAMAGE, PlayerMissileSnapshot, REQUIRED_SEATS,
-        ROCKET_BLAST_RADIUS_M, ROCKET_FLIGHT_TICKS, ROCKET_WARNING_TICKS, RiderInput,
-        RocketSnapshot, RocketWarning, SIMULATION_HZ, WorldPosition, riverside_course,
+        HelicopterPhase, MatchResult, MatchVictoryReason, PLAYER_MISSILE_DAMAGE,
+        PlayerMissileSnapshot, REQUIRED_SEATS, ROCKET_BLAST_RADIUS_M, ROCKET_FLIGHT_TICKS,
+        ROCKET_WARNING_TICKS, RiderInput, RocketSnapshot, RocketWarning, SIMULATION_HZ,
+        WorldPosition, riverside_course,
     };
     use std::{
         collections::BTreeSet,
@@ -1258,6 +1333,190 @@ mod tests {
             room.last_gunner_input_at = Some(*now);
         }
         let _ = room.advance_tick(*now);
+    }
+
+    fn bike_position_near_gate(distance_m: f32, along_m: f32) -> (f32, f32) {
+        let gate = riverside_course().point_at(distance_m);
+        (
+            gate.center_x + gate.yaw.sin() * along_m,
+            gate.center_z - gate.yaw.cos() * along_m,
+        )
+    }
+
+    fn cross_room_gate(room: &mut Room, distance_m: f32) {
+        let before = bike_position_near_gate(distance_m, -0.3);
+        let after = bike_position_near_gate(distance_m, 0.3);
+        room.bike.x = before.0;
+        room.bike.z = before.1;
+        let previous_bike = room.bike;
+        room.bike.x = after.0;
+        room.bike.z = after.1;
+        room.update_route_progress(previous_bike);
+    }
+
+    fn route_angle_delta(from: f32, to: f32) -> f32 {
+        (to - from + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI
+    }
+
+    #[test]
+    fn escape_requires_forward_ordered_checkpoints_and_crossing_the_finish() {
+        let course = riverside_course();
+        let [first_checkpoint, second_checkpoint] = course.checkpoints_m() else {
+            panic!("the course must have two ordered checkpoints");
+        };
+        let mut room = running_room();
+
+        // A later checkpoint or the finish cannot substitute for the first.
+        cross_room_gate(&mut room, *second_checkpoint);
+        assert_eq!(room.route_checkpoints_passed, 0);
+        cross_room_gate(&mut room, course.finish_distance_m());
+        assert!(!room.escape_finish_crossed);
+
+        // Crossing checkpoint one in reverse does not advance route state.
+        let after = bike_position_near_gate(*first_checkpoint, 0.3);
+        let before = bike_position_near_gate(*first_checkpoint, -0.3);
+        room.bike.x = after.0;
+        room.bike.z = after.1;
+        let previous_bike = room.bike;
+        room.bike.x = before.0;
+        room.bike.z = before.1;
+        room.update_route_progress(previous_bike);
+        assert_eq!(room.route_checkpoints_passed, 0);
+
+        cross_room_gate(&mut room, *first_checkpoint);
+        assert_eq!(room.route_checkpoints_passed, 1);
+        cross_room_gate(&mut room, *second_checkpoint);
+        assert_eq!(room.route_checkpoints_passed, 2);
+
+        let finish_before = bike_position_near_gate(course.finish_distance_m(), -0.3);
+        room.bike.x = finish_before.0;
+        room.bike.z = finish_before.1;
+        let previous_bike = room.bike;
+        room.update_route_progress(previous_bike);
+        room.finish_if_needed();
+        assert_eq!(room.phase, GamePhase::Running);
+
+        cross_room_gate(&mut room, course.finish_distance_m());
+        room.finish_if_needed();
+        assert_eq!(room.phase, GamePhase::Finished);
+        assert_eq!(room.match_result, Some(MatchResult::RidersVictory));
+        assert_eq!(room.match_victory_reason, Some(MatchVictoryReason::Escaped));
+        assert!(room.recent_combat_events.iter().any(|event| matches!(
+            event.kind,
+            CombatEventKind::MatchFinished {
+                result: MatchResult::RidersVictory,
+                victory_reason: Some(MatchVictoryReason::Escaped)
+            }
+        )));
+    }
+
+    #[test]
+    fn controlled_authoritative_route_completes_an_escape() {
+        let course = riverside_course();
+        let mut room = running_room();
+        room.helicopter = None;
+        let mut now = Instant::now();
+        for _ in 0..SIMULATION_HZ * 180 {
+            let projection = course.project(room.bike.x, room.bike.z);
+            if room.phase == GamePhase::Finished {
+                break;
+            }
+            let lookahead = course.point_at((projection.distance_m + 4.0).min(course.length_m()));
+            let obstacle_detour = if (30.0..45.0).contains(&projection.distance_m) {
+                1.25
+            } else {
+                0.0
+            };
+            let target_x = lookahead.center_x + lookahead.yaw.cos() * obstacle_detour;
+            let target_z = lookahead.center_z + lookahead.yaw.sin() * obstacle_detour;
+            let desired_yaw = (target_x - room.bike.x).atan2(room.bike.z - target_z);
+            let heading_error = route_angle_delta(room.bike.yaw, desired_yaw);
+            let desired_curvature = course.curvature_at(projection.distance_m + 2.0);
+            let steer = ((desired_curvature + heading_error * 0.65) / 0.148).clamp(-1.0, 1.0);
+            step_room(
+                &mut room,
+                &mut now,
+                RiderInput {
+                    pedal_held: true,
+                    steer,
+                    ..RiderInput::default()
+                },
+            );
+        }
+
+        assert_eq!(room.phase, GamePhase::Finished);
+        assert_eq!(room.route_checkpoints_passed, 2);
+        assert_eq!(room.match_result, Some(MatchResult::RidersVictory));
+        assert_eq!(room.match_victory_reason, Some(MatchVictoryReason::Escaped));
+        eprintln!(
+            "authoritative escape finished at {:.1} m in {:.1} s ({} ticks)",
+            room.route_distance_m,
+            room.tick as f32 / SIMULATION_HZ as f32,
+            room.tick
+        );
+    }
+
+    #[test]
+    fn delayed_twenty_hz_rider_control_completes_authoritative_escape() {
+        let course = riverside_course();
+        let mut room = running_room();
+        room.helicopter = None;
+        let mut now = Instant::now();
+        let mut history = vec![room.bike];
+        let mut delayed = std::collections::VecDeque::new();
+        let mut input = RiderInput::default();
+        for elapsed_tick in 0..SIMULATION_HZ * 180 {
+            if elapsed_tick.is_multiple_of(3) {
+                // Observe a 20 Hz snapshot after one 50 ms transit, calculate
+                // steering, then apply the next input after its 50 ms transit.
+                let observed_index = elapsed_tick.saturating_sub(3) as usize;
+                let observed_bike = history[observed_index];
+                let projection = course.project(observed_bike.x, observed_bike.z);
+                let lookahead =
+                    course.point_at((projection.distance_m + 6.0).min(course.length_m()));
+                let detour = if (30.0..40.0).contains(&projection.distance_m) {
+                    0.75
+                } else {
+                    0.0
+                };
+                let target_x = lookahead.center_x + lookahead.yaw.cos() * detour;
+                let target_z = lookahead.center_z + lookahead.yaw.sin() * detour;
+                let desired_yaw = (target_x - observed_bike.x).atan2(observed_bike.z - target_z);
+                let heading_error = route_angle_delta(observed_bike.yaw, desired_yaw);
+                let curvature = course.curvature_at(projection.distance_m + 2.0);
+                let steer = ((curvature + heading_error * 0.65) / 0.148).clamp(-1.0, 1.0);
+                delayed.push_back((
+                    elapsed_tick + 3,
+                    RiderInput {
+                        pedal_held: true,
+                        steer,
+                        ..RiderInput::default()
+                    },
+                ));
+            }
+            if delayed
+                .front()
+                .is_some_and(|(ready_tick, _)| *ready_tick <= elapsed_tick)
+            {
+                input = delayed.pop_front().unwrap().1;
+            }
+            step_room(&mut room, &mut now, input);
+            history.push(room.bike);
+            if room.phase == GamePhase::Finished {
+                break;
+            }
+        }
+
+        assert_eq!(room.phase, GamePhase::Finished);
+        assert_eq!(room.route_checkpoints_passed, 2);
+        assert_eq!(room.match_result, Some(MatchResult::RidersVictory));
+        assert_eq!(room.match_victory_reason, Some(MatchVictoryReason::Escaped));
+        eprintln!(
+            "20 Hz Rider control with 100 ms input/feedback delay escaped {:.1} m in {:.1} s ({} ticks)",
+            room.route_distance_m,
+            room.tick as f32 / SIMULATION_HZ as f32,
+            room.tick
+        );
     }
 
     fn gunner_input_for_helicopter(room: &Room, aim_held: bool) -> GunnerInput {
@@ -1928,7 +2187,8 @@ mod tests {
                 .filter(|event| matches!(
                     event.kind,
                     CombatEventKind::MatchFinished {
-                        result: MatchResult::RidersVictory
+                        result: MatchResult::RidersVictory,
+                        victory_reason: Some(MatchVictoryReason::HelicopterDestroyed),
                     }
                 ))
                 .count(),
@@ -1941,6 +2201,8 @@ mod tests {
         let mut room = running_room();
         room.bike_health = BIKE_ROCKET_DAMAGE;
         room.helicopter_health = PLAYER_MISSILE_DAMAGE;
+        room.route_checkpoints_passed = riverside_course().checkpoints_m().len();
+        room.escape_finish_crossed = true;
         let helicopter = room.helicopter.unwrap();
         room.helicopter = Some(super::HelicopterSnapshot {
             phase: HelicopterPhase::RocketInFlight,
@@ -1972,6 +2234,7 @@ mod tests {
         assert_eq!(room.bike_health, 0);
         assert_eq!(room.helicopter_health, 0);
         assert_eq!(room.match_result, Some(MatchResult::RidersDefeat));
+        assert_eq!(room.match_victory_reason, None);
         assert!(room.rocket.is_none());
         assert!(room.player_missile.is_none());
         assert!(room.helicopter.is_none());
@@ -1988,6 +2251,10 @@ mod tests {
         let mut room = running_room();
         room.phase = GamePhase::Finished;
         room.match_result = Some(MatchResult::RidersVictory);
+        room.match_victory_reason = Some(MatchVictoryReason::Escaped);
+        room.route_distance_m = 850.0;
+        room.route_checkpoints_passed = 2;
+        room.escape_finish_crossed = true;
         room.bike_health = 0;
         room.helicopter_health = 0;
         room.gunner_ammo = 1;
@@ -2032,6 +2299,10 @@ mod tests {
         assert_eq!(room.rocket, None);
         assert_eq!(room.player_missile, None);
         assert_eq!(room.match_result, None);
+        assert_eq!(room.match_victory_reason, None);
+        assert_eq!(room.route_distance_m, 0.0);
+        assert_eq!(room.route_checkpoints_passed, 0);
+        assert!(!room.escape_finish_crossed);
         assert!(room.recent_combat_events.is_empty());
         assert!(REQUIRED_SEATS.iter().all(|seat| room.seats[seat].ready));
 
