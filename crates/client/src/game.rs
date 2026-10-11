@@ -8,10 +8,11 @@ use bevy::{
     world_serialization::WorldAssetRoot,
 };
 use riverside_common::{
-    BIKE_STARTING_HEALTH, BikeRenderOffset, BikeState, ClientMessage, CombatEvent, CombatEventKind,
-    FIXED_DT_SECONDS, FireRejectionReason, GUNNER_LOCK_CONE_HALF_ANGLE_DEGREES, GUNNER_LOCK_TICKS,
-    GUNNER_PITCH_MAX_RADIANS, GUNNER_PITCH_MIN_RADIANS, GUNNER_STARTING_AMMO, GamePhase,
-    GunnerInput, HELICOPTER_ALTITUDE_M, HELICOPTER_STARTING_HEALTH, HelicopterSnapshot,
+    BIKE_STARTING_HEALTH, BRIDGE_DECK_BOTTOM_M, BRIDGE_DECK_HALF_WIDTH_M, BRIDGE_DECK_TOP_M,
+    BRIDGE_SPAN_LENGTH_M, BikeRenderOffset, BikeState, ClientMessage, CombatEvent, CombatEventKind,
+    CoverKind, FIXED_DT_SECONDS, FireRejectionReason, GUNNER_LOCK_CONE_HALF_ANGLE_DEGREES,
+    GUNNER_LOCK_TICKS, GUNNER_PITCH_MAX_RADIANS, GUNNER_PITCH_MIN_RADIANS, GUNNER_STARTING_AMMO,
+    GamePhase, GunnerInput, HELICOPTER_ALTITUDE_M, HELICOPTER_STARTING_HEALTH, HelicopterSnapshot,
     MatchResult, OBSTACLES, ObstacleKind, PlayerMissileSnapshot, REQUIRED_SEATS,
     ROAD_STRAIGHT_LENGTH_M, ROCKET_BLAST_RADIUS_M, RiderInput, RiderInputSample, RiderPrediction,
     RoadPieceKind, RocketSnapshot, SIMULATION_HZ, SeatKind, SeatStatus, SnapshotInterpolator,
@@ -565,6 +566,50 @@ pub fn setup_scene(
                             .with_scale(Vec3::new(1.0, 1.0, end - start)),
                     ));
                 }
+            }
+        }
+    }
+
+    let bridge_material = materials.add(StandardMaterial {
+        base_color: Color::srgb(0.37, 0.42, 0.41),
+        metallic: 0.08,
+        perceptual_roughness: 0.88,
+        ..default()
+    });
+    let bridge_deck_mesh = meshes.add(Cuboid::new(
+        BRIDGE_DECK_HALF_WIDTH_M * 2.0,
+        BRIDGE_DECK_TOP_M - BRIDGE_DECK_BOTTOM_M,
+        BRIDGE_SPAN_LENGTH_M,
+    ));
+    for cover in course.cover_volumes() {
+        match cover.kind {
+            CoverKind::BridgeDeck => {
+                commands.spawn((
+                    Mesh3d(bridge_deck_mesh.clone()),
+                    MeshMaterial3d(bridge_material.clone()),
+                    Transform::from_xyz(
+                        cover.center_x,
+                        (cover.min_y + cover.max_y) * 0.5,
+                        cover.center_z,
+                    )
+                    .with_rotation(Quat::from_rotation_y(-cover.yaw))
+                    .with_scale(Vec3::new(
+                        1.0,
+                        1.0,
+                        cover.half_depth_m * 2.0 / BRIDGE_SPAN_LENGTH_M,
+                    )),
+                ));
+            }
+            CoverKind::BridgePier => {
+                commands.spawn((
+                    WorldAssetRoot(
+                        asset_server
+                            .load(GltfAssetLabel::Scene(0).from_asset("models/bridge_pier.glb")),
+                    ),
+                    Transform::from_xyz(cover.center_x, 0.0, cover.center_z)
+                        .with_rotation(Quat::from_rotation_y(-cover.yaw))
+                        .with_scale(Vec3::new(3.0, 1.0, 1.0)),
+                ));
             }
         }
     }

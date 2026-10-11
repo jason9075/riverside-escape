@@ -17,16 +17,16 @@ use futures_util::{SinkExt, StreamExt};
 use riverside_common::{
     BIKE_ROCKET_DAMAGE, BIKE_STARTING_HEALTH, BikeState, COMBAT_EVENT_RETENTION_TICKS,
     COUNTDOWN_SECONDS, ClientMessage, CombatEvent, CombatEventKind, FireRejectionReason,
-    GUNNER_FIRE_COOLDOWN_TICKS, GUNNER_LOCK_GRACE_TICKS, GUNNER_LOCK_TICKS, GUNNER_STARTING_AMMO,
-    GamePhase, GunnerInput, HELICOPTER_ALTITUDE_M, HELICOPTER_CHASE_DISTANCE_M,
-    HELICOPTER_CHASE_TICKS, HELICOPTER_REPOSITION_OFFSET_M, HELICOPTER_REPOSITION_TICKS,
-    HELICOPTER_SPEED_MPS, HELICOPTER_STARTING_HEALTH, HelicopterPhase, HelicopterSnapshot,
-    MAX_INPUT_TICK_AGE, MAX_INPUT_TICK_FUTURE, MatchResult, PLAYER_MISSILE_DAMAGE,
-    PLAYER_MISSILE_HIT_RADIUS_M, PLAYER_MISSILE_LIFETIME_TICKS, PLAYER_MISSILE_SPEED_MPS,
-    PlayerMissileSnapshot, REQUIRED_SEATS, ROCKET_AIM_LEAD_SECONDS, ROCKET_BLAST_RADIUS_M,
-    ROCKET_FLIGHT_TICKS, ROCKET_WARNING_TICKS, RiderInput, RocketSnapshot, RocketWarning,
-    SIMULATION_HZ, SNAPSHOT_HZ, SeatKind, SeatStatus, ServerMessage, WorldPosition, WorldSnapshot,
-    evaluate_gunner_aim,
+    GUNNER_AIM_ORIGIN_HEIGHT_M, GUNNER_FIRE_COOLDOWN_TICKS, GUNNER_LOCK_GRACE_TICKS,
+    GUNNER_LOCK_TICKS, GUNNER_STARTING_AMMO, GamePhase, GunnerInput, HELICOPTER_ALTITUDE_M,
+    HELICOPTER_CHASE_DISTANCE_M, HELICOPTER_CHASE_TICKS, HELICOPTER_REPOSITION_OFFSET_M,
+    HELICOPTER_REPOSITION_TICKS, HELICOPTER_SPEED_MPS, HELICOPTER_STARTING_HEALTH, HelicopterPhase,
+    HelicopterSnapshot, MAX_INPUT_TICK_AGE, MAX_INPUT_TICK_FUTURE, MatchResult,
+    PLAYER_MISSILE_DAMAGE, PLAYER_MISSILE_HIT_RADIUS_M, PLAYER_MISSILE_LIFETIME_TICKS,
+    PLAYER_MISSILE_SPEED_MPS, PlayerMissileSnapshot, REQUIRED_SEATS, ROCKET_AIM_LEAD_SECONDS,
+    ROCKET_BLAST_RADIUS_M, ROCKET_FLIGHT_TICKS, ROCKET_WARNING_TICKS, RiderInput, RocketSnapshot,
+    RocketWarning, SIMULATION_HZ, SNAPSHOT_HZ, SeatKind, SeatStatus, ServerMessage, WorldPosition,
+    WorldSnapshot, evaluate_gunner_aim, first_cover_intersection, line_of_sight_blocked,
 };
 use tokio::{net::TcpListener, runtime::Builder, sync::broadcast};
 
@@ -369,24 +369,35 @@ impl Room {
         };
         let bike_target = WorldPosition {
             x: self.bike.x,
-            y: 0.0,
+            y: GUNNER_AIM_ORIGIN_HEIGHT_M,
             z: self.bike.z,
         };
 
         match helicopter.phase {
             HelicopterPhase::Chasing => {
-                let chase_target = WorldPosition {
-                    x: self.bike.x,
-                    y: HELICOPTER_ALTITUDE_M,
-                    z: self.bike.z + HELICOPTER_CHASE_DISTANCE_M,
-                };
-                move_toward(
-                    &mut helicopter.position,
-                    chase_target,
-                    HELICOPTER_SPEED_MPS / SIMULATION_HZ as f32,
-                );
-                helicopter.yaw = heading_toward(helicopter.position, bike_target);
-                if self.tick >= self.helicopter_phase_deadline_tick {
+                if line_of_sight_blocked(helicopter.position, bike_target) {
+                    // Stay in a pursuit/reposition loop while bridge cover
+                    // blocks the bike. Do not telegraph a shot through the deck.
+                    helicopter.phase = HelicopterPhase::Repositioning;
+                    helicopter.warning = None;
+                    self.helicopter_phase_deadline_tick = self.tick + HELICOPTER_REPOSITION_TICKS;
+                } else {
+                    let chase_target = WorldPosition {
+                        x: self.bike.x,
+                        y: HELICOPTER_ALTITUDE_M,
+                        z: self.bike.z + HELICOPTER_CHASE_DISTANCE_M,
+                    };
+                    move_helicopter_toward(
+                        &mut helicopter.position,
+                        chase_target,
+                        HELICOPTER_SPEED_MPS / SIMULATION_HZ as f32,
+                    );
+                    helicopter.yaw = heading_toward(helicopter.position, bike_target);
+                }
+                if helicopter.phase == HelicopterPhase::Chasing
+                    && self.tick >= self.helicopter_phase_deadline_tick
+                    && !line_of_sight_blocked(helicopter.position, bike_target)
+                {
                     let attack_id = self.next_attack_id;
                     self.next_attack_id = self.next_attack_id.saturating_add(1);
                     let lead = self.bike.speed * ROCKET_AIM_LEAD_SECONDS;
@@ -412,7 +423,11 @@ impl Room {
                 }
             }
             HelicopterPhase::Telegraph => {
-                if self.tick >= self.helicopter_phase_deadline_tick
+                if line_of_sight_blocked(helicopter.position, bike_target) {
+                    helicopter.phase = HelicopterPhase::Repositioning;
+                    helicopter.warning = None;
+                    self.helicopter_phase_deadline_tick = self.tick + HELICOPTER_REPOSITION_TICKS;
+                } else if self.tick >= self.helicopter_phase_deadline_tick
                     && let Some(warning) = helicopter.warning
                 {
                     let launch_position = WorldPosition {
@@ -442,12 +457,29 @@ impl Room {
                     let flight_ticks = rocket.impact_tick.saturating_sub(rocket.launch_tick).max(1);
                     let progress =
                         self.tick.saturating_sub(rocket.launch_tick) as f32 / flight_ticks as f32;
-                    rocket.position = interpolate_position(
+                    let next_position = interpolate_position(
                         rocket.launch_position,
                         rocket.impact_position,
                         progress.clamp(0.0, 1.0),
                     );
-                    if self.tick >= rocket.impact_tick {
+                    if let Some(fraction) = first_cover_intersection(rocket.position, next_position)
+                    {
+                        let impact_position =
+                            interpolate_position(rocket.position, next_position, fraction);
+                        self.rocket = None;
+                        helicopter.phase = HelicopterPhase::Repositioning;
+                        helicopter.warning = None;
+                        self.helicopter_phase_deadline_tick =
+                            self.tick + HELICOPTER_REPOSITION_TICKS;
+                        self.push_combat_event(
+                            rocket.attack_id,
+                            CombatEventKind::RocketExploded {
+                                hit: false,
+                                hit_count: self.rocket_hit_count,
+                            },
+                            impact_position,
+                        );
+                    } else if self.tick >= rocket.impact_tick {
                         let dx = self.bike.x - rocket.impact_position.x;
                         let dz = self.bike.z - rocket.impact_position.z;
                         let hit = dx.hypot(dz) <= ROCKET_BLAST_RADIUS_M;
@@ -478,6 +510,7 @@ impl Room {
                             );
                         }
                     } else {
+                        rocket.position = next_position;
                         self.rocket = Some(rocket);
                     }
                 }
@@ -488,7 +521,7 @@ impl Room {
                     y: HELICOPTER_ALTITUDE_M + 1.5,
                     z: self.bike.z + HELICOPTER_CHASE_DISTANCE_M + 5.0,
                 };
-                move_toward(
+                move_helicopter_toward(
                     &mut helicopter.position,
                     reposition_target,
                     HELICOPTER_SPEED_MPS / SIMULATION_HZ as f32,
@@ -604,6 +637,29 @@ impl Room {
         let dz = target.z - missile.position.z;
         let distance = (dx * dx + dy * dy + dz * dz).sqrt();
         let travel = PLAYER_MISSILE_SPEED_MPS / SIMULATION_HZ as f32;
+        let reaches_target = distance <= travel + PLAYER_MISSILE_HIT_RADIUS_M;
+        let next_position = if reaches_target {
+            target
+        } else {
+            WorldPosition {
+                x: missile.position.x + dx / distance * travel,
+                y: missile.position.y + dy / distance * travel,
+                z: missile.position.z + dz / distance * travel,
+            }
+        };
+        if let Some(fraction) = first_cover_intersection(missile.position, next_position) {
+            let impact_position = interpolate_position(missile.position, next_position, fraction);
+            self.player_missile = None;
+            self.push_combat_event(
+                missile.attack_id,
+                CombatEventKind::PlayerMissileImpacted {
+                    hit: false,
+                    helicopter_health: self.helicopter_health,
+                },
+                impact_position,
+            );
+            return;
+        }
         if distance <= travel + PLAYER_MISSILE_HIT_RADIUS_M {
             self.helicopter_health = self.helicopter_health.saturating_sub(PLAYER_MISSILE_DAMAGE);
             self.player_missile = None;
@@ -626,11 +682,7 @@ impl Room {
                 missile.position,
             );
         } else {
-            missile.position = WorldPosition {
-                x: missile.position.x + dx / distance * travel,
-                y: missile.position.y + dy / distance * travel,
-                z: missile.position.z + dz / distance * travel,
-            };
+            missile.position = next_position;
             self.player_missile = Some(missile);
         }
     }
@@ -887,6 +939,14 @@ fn move_toward(current: &mut WorldPosition, target: WorldPosition, max_distance:
     current.z += dz * amount;
 }
 
+fn move_helicopter_toward(current: &mut WorldPosition, target: WorldPosition, max_distance: f32) {
+    let mut next = *current;
+    move_toward(&mut next, target, max_distance);
+    if first_cover_intersection(*current, next).is_none() {
+        *current = next;
+    }
+}
+
 fn heading_toward(from: WorldPosition, to: WorldPosition) -> f32 {
     (to.x - from.x).atan2(from.z - to.z)
 }
@@ -1102,14 +1162,15 @@ fn tick_room(runtime: Res<ServerRuntime>) {
 
 #[cfg(test)]
 mod tests {
-    use super::{Room, input_tick_is_valid};
+    use super::{Room, input_tick_is_valid, move_helicopter_toward};
     use riverside_common::{
-        BIKE_ROCKET_DAMAGE, BIKE_STARTING_HEALTH, BikeState, ClientMessage, CombatEventKind,
-        FireRejectionReason, GUNNER_AIM_ORIGIN_HEIGHT_M, GUNNER_AIM_ORIGIN_REAR_M,
-        GUNNER_LOCK_GRACE_TICKS, GUNNER_LOCK_TICKS, GUNNER_STARTING_AMMO, GamePhase, GunnerInput,
-        HELICOPTER_CHASE_TICKS, HELICOPTER_STARTING_HEALTH, HelicopterPhase, MatchResult,
-        PLAYER_MISSILE_DAMAGE, REQUIRED_SEATS, ROCKET_BLAST_RADIUS_M, ROCKET_FLIGHT_TICKS,
-        ROCKET_WARNING_TICKS, RiderInput, SIMULATION_HZ, WorldPosition,
+        BIKE_ROCKET_DAMAGE, BIKE_STARTING_HEALTH, BRIDGE_DECK_BOTTOM_M, BikeState, ClientMessage,
+        CombatEventKind, CoverKind, FireRejectionReason, GUNNER_AIM_ORIGIN_HEIGHT_M,
+        GUNNER_AIM_ORIGIN_REAR_M, GUNNER_LOCK_GRACE_TICKS, GUNNER_LOCK_TICKS, GUNNER_STARTING_AMMO,
+        GamePhase, GunnerInput, HELICOPTER_CHASE_TICKS, HELICOPTER_STARTING_HEALTH,
+        HelicopterPhase, MatchResult, PLAYER_MISSILE_DAMAGE, PlayerMissileSnapshot, REQUIRED_SEATS,
+        ROCKET_BLAST_RADIUS_M, ROCKET_FLIGHT_TICKS, ROCKET_WARNING_TICKS, RiderInput,
+        RocketSnapshot, RocketWarning, SIMULATION_HZ, WorldPosition, riverside_course,
     };
     use std::{
         collections::BTreeSet,
@@ -1667,6 +1728,175 @@ mod tests {
         )));
         assert_eq!(room.gunner_ammo, GUNNER_STARTING_AMMO);
         assert_eq!(room.player_missile, None);
+    }
+
+    #[test]
+    fn bridge_deck_clears_gunner_lock_cancels_warning_and_blocks_fire() {
+        let mut room = running_room();
+        let deck = riverside_course()
+            .cover_volumes()
+            .iter()
+            .find(|cover| cover.kind == CoverKind::BridgeDeck)
+            .copied()
+            .unwrap();
+        room.bike = BikeState {
+            x: deck.center_x,
+            z: deck.center_z,
+            ..BikeState::default()
+        };
+        let mut helicopter = room.helicopter.unwrap();
+        helicopter.position = WorldPosition {
+            x: deck.center_x,
+            y: 8.0,
+            z: deck.center_z,
+        };
+        room.helicopter = Some(helicopter);
+        room.gunner_input = gunner_input_for_helicopter(&room, true);
+        room.last_gunner_input_at = Some(Instant::now());
+        room.gunner_lock_progress_ticks = GUNNER_LOCK_TICKS;
+        room.update_gunner_lock();
+        assert_eq!(room.gunner_lock_progress_ticks, 0);
+        assert_eq!(
+            room.fire_rejection_reason(room.tick, Instant::now()),
+            Some(FireRejectionReason::Obstructed)
+        );
+        room.handle_fire_request(1, room.tick, Instant::now());
+        assert!(room.recent_combat_events.iter().any(|event| matches!(
+            event.kind,
+            CombatEventKind::GunnerFireRejected {
+                request_id: 1,
+                reason: FireRejectionReason::Obstructed
+            }
+        )));
+
+        helicopter.phase = HelicopterPhase::Telegraph;
+        helicopter.warning = Some(RocketWarning {
+            attack_id: 500,
+            impact_position: WorldPosition {
+                x: room.bike.x,
+                y: 0.0,
+                z: room.bike.z,
+            },
+            impact_tick: room.tick + ROCKET_WARNING_TICKS + ROCKET_FLIGHT_TICKS,
+            blast_radius_m: ROCKET_BLAST_RADIUS_M,
+        });
+        room.helicopter = Some(helicopter);
+        room.helicopter_phase_deadline_tick = room.tick;
+        room.step_helicopter();
+        let helicopter = room.helicopter.unwrap();
+        assert_eq!(helicopter.phase, HelicopterPhase::Repositioning);
+        assert!(helicopter.warning.is_none());
+        assert!(room.rocket.is_none());
+    }
+
+    #[test]
+    fn projectiles_hit_the_bridge_deck_before_the_bike_or_helicopter() {
+        let deck = riverside_course()
+            .cover_volumes()
+            .iter()
+            .find(|cover| cover.kind == CoverKind::BridgeDeck)
+            .copied()
+            .unwrap();
+        let mut room = running_room();
+        room.bike = BikeState {
+            x: deck.center_x,
+            z: deck.center_z,
+            ..BikeState::default()
+        };
+        let mut helicopter = room.helicopter.unwrap();
+        helicopter.position = WorldPosition {
+            x: deck.center_x,
+            y: 8.0,
+            z: deck.center_z,
+        };
+        helicopter.phase = HelicopterPhase::RocketInFlight;
+        room.helicopter = Some(helicopter);
+        room.rocket = Some(RocketSnapshot {
+            attack_id: 501,
+            launch_position: helicopter.position,
+            position: helicopter.position,
+            impact_position: WorldPosition {
+                x: deck.center_x,
+                y: 0.0,
+                z: deck.center_z,
+            },
+            launch_tick: room.tick,
+            impact_tick: room.tick + 60,
+        });
+        for _ in 0..60 {
+            room.tick += 1;
+            room.step_helicopter();
+            if room.rocket.is_none() {
+                break;
+            }
+        }
+        assert!(room.rocket.is_none());
+        assert_eq!(room.bike_health, BIKE_STARTING_HEALTH);
+        assert_eq!(room.rocket_hit_count, 0);
+        assert!(room.recent_combat_events.iter().any(|event| matches!(
+            event.kind,
+            CombatEventKind::RocketExploded {
+                hit: false,
+                hit_count: 0
+            }
+        )));
+
+        room.player_missile = Some(PlayerMissileSnapshot {
+            attack_id: 502,
+            launch_position: WorldPosition {
+                x: deck.center_x,
+                y: BRIDGE_DECK_BOTTOM_M - 0.5,
+                z: deck.center_z,
+            },
+            position: WorldPosition {
+                x: deck.center_x,
+                y: BRIDGE_DECK_BOTTOM_M - 0.5,
+                z: deck.center_z,
+            },
+            launch_tick: room.tick,
+            expires_tick: room.tick + 90,
+        });
+        for _ in 0..90 {
+            room.tick += 1;
+            room.step_player_missile();
+            if room.player_missile.is_none() {
+                break;
+            }
+        }
+        assert!(room.player_missile.is_none());
+        assert_eq!(room.helicopter_health, HELICOPTER_STARTING_HEALTH);
+        assert!(room.recent_combat_events.iter().any(|event| matches!(
+            event.kind,
+            CombatEventKind::PlayerMissileImpacted {
+                hit: false,
+                helicopter_health: HELICOPTER_STARTING_HEALTH
+            }
+        )));
+    }
+
+    #[test]
+    fn helicopter_does_not_move_through_bridge_geometry() {
+        let deck = riverside_course()
+            .cover_volumes()
+            .iter()
+            .find(|cover| cover.kind == CoverKind::BridgeDeck)
+            .copied()
+            .unwrap();
+        let start = WorldPosition {
+            x: deck.center_x + 10.0,
+            y: (deck.min_y + deck.max_y) * 0.5,
+            z: deck.center_z,
+        };
+        let mut helicopter = start;
+        move_helicopter_toward(
+            &mut helicopter,
+            WorldPosition {
+                x: deck.center_x - 10.0,
+                ..start
+            },
+            30.0,
+        );
+        assert_eq!(helicopter, start);
     }
 
     #[test]

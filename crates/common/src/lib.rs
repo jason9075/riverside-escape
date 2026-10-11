@@ -17,6 +17,11 @@ pub const ROAD_STRAIGHT_LENGTH_M: f32 = 8.0;
 pub const ROAD_CURVE_RADIUS_M: f32 = 10.0;
 pub const ROAD_CURVE_ANGLE_RADIANS: f32 = std::f32::consts::PI / 6.0;
 pub const ROAD_CURVE_LENGTH_M: f32 = ROAD_CURVE_RADIUS_M * ROAD_CURVE_ANGLE_RADIANS;
+pub const BRIDGE_SPAN_LENGTH_M: f32 = 32.0;
+pub const BRIDGE_DECK_HALF_WIDTH_M: f32 = 6.5;
+pub const BRIDGE_DECK_BOTTOM_M: f32 = 4.9;
+pub const BRIDGE_DECK_TOP_M: f32 = 5.7;
+pub const BRIDGE_PIER_OFFSET_M: f32 = 6.4;
 pub const FIXED_DT: f32 = 1.0 / SIMULATION_HZ as f32;
 pub const FIXED_DT_SECONDS: f64 = 1.0 / SIMULATION_HZ as f64;
 pub const INTERPOLATION_DELAY_TICKS: u64 = SIMULATION_HZ as u64 / SNAPSHOT_HZ as u64;
@@ -345,7 +350,7 @@ pub fn evaluate_gunner_aim(
     }
 }
 
-fn line_of_sight_blocked(origin: WorldPosition, target: WorldPosition) -> bool {
+pub fn line_of_sight_blocked(origin: WorldPosition, target: WorldPosition) -> bool {
     for obstacle in OBSTACLES {
         let (height, padding) = match obstacle.kind {
             ObstacleKind::Cone => (0.9, 0.08),
@@ -365,7 +370,19 @@ fn line_of_sight_blocked(origin: WorldPosition, target: WorldPosition) -> bool {
             return true;
         }
     }
-    false
+    first_cover_intersection(origin, target).is_some()
+}
+
+/// Returns the first entry fraction along a 3D line segment that intersects
+/// shared, server-safe cover geometry.
+pub fn first_cover_intersection(origin: WorldPosition, target: WorldPosition) -> Option<f32> {
+    riverside_course()
+        .cover_volumes()
+        .iter()
+        .filter_map(|cover| {
+            segment_cover_interval(origin, target, *cover).map(|interval| interval.0)
+        })
+        .min_by(f32::total_cmp)
 }
 
 fn segment_box_interval(
@@ -569,6 +586,26 @@ pub struct RoadPiece {
     pub length_m: f32,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CoverKind {
+    BridgeDeck,
+    BridgePier,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CoverVolume {
+    pub kind: CoverKind,
+    pub center_x: f32,
+    pub center_z: f32,
+    pub yaw: f32,
+    /// Half extent along the road's local X axis.
+    pub half_width_m: f32,
+    /// Half extent along the road's local Z axis.
+    pub half_depth_m: f32,
+    pub min_y: f32,
+    pub max_y: f32,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct CoursePoint {
     x: f32,
@@ -593,6 +630,7 @@ pub struct CourseProjection {
 pub struct RiversideCourse {
     pieces: Vec<RoadPiece>,
     points: Vec<CoursePoint>,
+    cover_volumes: Vec<CoverVolume>,
     length_m: f32,
 }
 
@@ -638,7 +676,9 @@ impl RiversideCourse {
             builder.curve(opposite_turn(first_turn), RoadSection::NarrowBends);
         }
 
-        builder.finish()
+        let mut course = builder.finish();
+        course.add_bridge_cover();
+        course
     }
 
     pub fn pieces(&self) -> &[RoadPiece] {
@@ -647,6 +687,62 @@ impl RiversideCourse {
 
     pub fn length_m(&self) -> f32 {
         self.length_m
+    }
+
+    pub fn cover_volumes(&self) -> &[CoverVolume] {
+        &self.cover_volumes
+    }
+
+    fn add_bridge_cover(&mut self) {
+        let Some(bridge) = self
+            .pieces
+            .iter()
+            .find(|piece| piece.section == RoadSection::BridgeUnderpass)
+            .copied()
+        else {
+            return;
+        };
+        let bridge_end_m = self
+            .pieces
+            .iter()
+            .find(|piece| {
+                piece.start_distance_m > bridge.start_distance_m
+                    && piece.section != RoadSection::BridgeUnderpass
+            })
+            .map_or(self.length_m, |piece| piece.start_distance_m);
+
+        let mut span_start_m = bridge.start_distance_m;
+        while span_start_m < bridge_end_m {
+            let span_end_m = (span_start_m + BRIDGE_SPAN_LENGTH_M).min(bridge_end_m);
+            let center = self.point_at((span_start_m + span_end_m) * 0.5);
+            self.cover_volumes.push(CoverVolume {
+                kind: CoverKind::BridgeDeck,
+                center_x: center.center_x,
+                center_z: center.center_z,
+                yaw: center.yaw,
+                half_width_m: BRIDGE_DECK_HALF_WIDTH_M,
+                half_depth_m: (span_end_m - span_start_m) * 0.5,
+                min_y: BRIDGE_DECK_BOTTOM_M,
+                max_y: BRIDGE_DECK_TOP_M,
+            });
+
+            let support = self.point_at(span_start_m);
+            let right_x = support.yaw.cos() * BRIDGE_PIER_OFFSET_M;
+            let right_z = support.yaw.sin() * BRIDGE_PIER_OFFSET_M;
+            for side in [-1.0, 1.0] {
+                self.cover_volumes.push(CoverVolume {
+                    kind: CoverKind::BridgePier,
+                    center_x: support.center_x + right_x * side,
+                    center_z: support.center_z + right_z * side,
+                    yaw: support.yaw,
+                    half_width_m: 3.15,
+                    half_depth_m: 0.85,
+                    min_y: 0.0,
+                    max_y: 5.725,
+                });
+            }
+            span_start_m = span_end_m;
+        }
     }
 
     pub fn section_at(&self, distance_m: f32) -> RoadSection {
@@ -881,6 +977,7 @@ impl CourseBuilder {
         RiversideCourse {
             pieces: self.pieces,
             points: self.points,
+            cover_volumes: Vec::new(),
             length_m: self.distance_m,
         }
     }
@@ -911,12 +1008,52 @@ fn approach_course_angle(from: f32, to: f32, alpha: f32) -> f32 {
     wrap_course_angle(from + delta * alpha)
 }
 
+fn segment_cover_interval(
+    origin: WorldPosition,
+    target: WorldPosition,
+    cover: CoverVolume,
+) -> Option<(f32, f32)> {
+    let to_local = |position: WorldPosition| {
+        let dx = position.x - cover.center_x;
+        let dz = position.z - cover.center_z;
+        [
+            cover.yaw.cos() * dx + cover.yaw.sin() * dz,
+            position.y,
+            -cover.yaw.sin() * dx + cover.yaw.cos() * dz,
+        ]
+    };
+    let origin = to_local(origin);
+    let target = to_local(target);
+    let min = [-cover.half_width_m, cover.min_y, -cover.half_depth_m];
+    let max = [cover.half_width_m, cover.max_y, cover.half_depth_m];
+    let mut entry: f32 = 0.0;
+    let mut exit: f32 = 1.0;
+    for axis in 0..3 {
+        let delta = target[axis] - origin[axis];
+        if delta.abs() <= f32::EPSILON {
+            if origin[axis] < min[axis] || origin[axis] > max[axis] {
+                return None;
+            }
+            continue;
+        }
+        let a = (min[axis] - origin[axis]) / delta;
+        let b = (max[axis] - origin[axis]) / delta;
+        entry = entry.max(a.min(b));
+        exit = exit.min(a.max(b));
+        if entry > exit {
+            return None;
+        }
+    }
+    (exit >= 0.0 && entry <= 1.0).then_some((entry.clamp(0.0, 1.0), exit.clamp(0.0, 1.0)))
+}
+
 #[cfg(test)]
 mod course_tests {
     use super::{
-        BIKE_COLLISION_HALF_WIDTH, BikeState, FIXED_DT, MAX_SPEED, ROAD_CURVE_LENGTH_M,
-        ROAD_STRAIGHT_LENGTH_M, RiderInput, RoadPieceKind, RoadSection, TRACK_HALF_WIDTH,
-        riverside_course,
+        BIKE_COLLISION_HALF_WIDTH, BRIDGE_DECK_BOTTOM_M, BRIDGE_DECK_TOP_M, BikeState, CoverKind,
+        FIXED_DT, MAX_SPEED, ROAD_CURVE_LENGTH_M, ROAD_STRAIGHT_LENGTH_M, RiderInput,
+        RoadPieceKind, RoadSection, TRACK_HALF_WIDTH, WorldPosition, first_cover_intersection,
+        line_of_sight_blocked, riverside_course,
     };
 
     fn angle_delta(from: f32, to: f32) -> f32 {
@@ -1023,6 +1160,72 @@ mod course_tests {
             center.center_x - center.yaw.cos() * (TRACK_HALF_WIDTH + 0.1),
             center.center_z - center.yaw.sin() * (TRACK_HALF_WIDTH + 0.1)
         ));
+    }
+
+    #[test]
+    fn bridge_deck_blocks_direct_sight_and_projectile_paths_but_not_the_road_lane() {
+        let course = riverside_course();
+        let deck = course
+            .cover_volumes()
+            .iter()
+            .find(|cover| cover.kind == CoverKind::BridgeDeck)
+            .unwrap();
+        let under_roof = WorldPosition {
+            x: deck.center_x,
+            y: 1.84,
+            z: deck.center_z,
+        };
+        let helicopter = WorldPosition {
+            y: 8.0,
+            ..under_roof
+        };
+        assert!(line_of_sight_blocked(under_roof, helicopter));
+        let hit = first_cover_intersection(under_roof, helicopter).unwrap();
+        let hit_y = under_roof.y + (helicopter.y - under_roof.y) * hit;
+        assert!((hit_y - BRIDGE_DECK_BOTTOM_M).abs() < 0.01);
+
+        let bike_lane = WorldPosition {
+            y: BRIDGE_DECK_BOTTOM_M - 0.2,
+            ..under_roof
+        };
+        assert!(!line_of_sight_blocked(
+            bike_lane,
+            WorldPosition {
+                y: BRIDGE_DECK_BOTTOM_M - 0.1,
+                z: deck.center_z + 8.0,
+                ..bike_lane
+            }
+        ));
+        let above_deck = WorldPosition {
+            y: BRIDGE_DECK_TOP_M + 1.0,
+            ..under_roof
+        };
+        assert_eq!(
+            first_cover_intersection(
+                above_deck,
+                WorldPosition {
+                    y: BRIDGE_DECK_TOP_M + 2.0,
+                    ..above_deck
+                }
+            ),
+            None
+        );
+        assert_eq!(
+            course
+                .cover_volumes()
+                .iter()
+                .filter(|cover| cover.kind == CoverKind::BridgeDeck)
+                .count(),
+            13
+        );
+        assert_eq!(
+            course
+                .cover_volumes()
+                .iter()
+                .filter(|cover| cover.kind == CoverKind::BridgePier)
+                .count(),
+            26
+        );
     }
 
     #[test]
