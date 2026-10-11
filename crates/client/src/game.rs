@@ -1383,6 +1383,7 @@ fn combat_status(session: &GameSession) -> String {
                     }
                     (MatchResult::RidersVictory, _) => "VICTORY  |  Helicopter destroyed".into(),
                     (MatchResult::RidersDefeat, _) => "DEFEAT  |  Bike disabled".into(),
+                    (MatchResult::Aborted, _) => "MATCH ABORTED  |  A player left the room".into(),
                 };
             }
             _ => {}
@@ -1397,6 +1398,7 @@ fn combat_status(session: &GameSession) -> String {
                 "VICTORY  |  Helicopter destroyed | press R to ready again".into()
             }
             (Some(MatchResult::RidersDefeat), _) => "DEFEAT  |  Press R to ready again".into(),
+            (Some(MatchResult::Aborted), _) => "MATCH ABORTED | press R to ready again".into(),
             (None, _) => String::new(),
         };
     }
@@ -1562,6 +1564,9 @@ pub(super) fn update_hud(
             GamePhase::Countdown => {
                 format!("Starting in {}...", session.countdown_seconds.unwrap_or(5))
             }
+            GamePhase::Paused => {
+                "Match paused | reconnect and both players press R to resume".into()
+            }
             GamePhase::Running => format!(
                 "{} | {} m to escape | checkpoints {}/{}",
                 session.route_section.label(),
@@ -1580,6 +1585,9 @@ pub(super) fn update_hud(
                 }
                 (Some(MatchResult::RidersDefeat), _) => {
                     "DEFEAT | both players press R to replay".into()
+                }
+                (Some(MatchResult::Aborted), _) => {
+                    "MATCH ABORTED | press R to start a new round".into()
                 }
                 (None, _) => "Finished | press R to ready for another round".into(),
             },

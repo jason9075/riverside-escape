@@ -23,12 +23,13 @@ use riverside_common::{
     HELICOPTER_REPOSITION_TICKS, HELICOPTER_SPEED_MPS, HELICOPTER_STARTING_HEALTH, HelicopterPhase,
     HelicopterSnapshot, MAX_INPUT_TICK_AGE, MAX_INPUT_TICK_FUTURE, MatchResult, MatchVictoryReason,
     PLAYER_MISSILE_DAMAGE, PLAYER_MISSILE_HIT_RADIUS_M, PLAYER_MISSILE_LIFETIME_TICKS,
-    PLAYER_MISSILE_SPEED_MPS, PlayerMissileSnapshot, REQUIRED_SEATS, ROCKET_AIM_LEAD_SECONDS,
-    ROCKET_BLAST_RADIUS_M, ROCKET_FLIGHT_TICKS, ROCKET_WARNING_TICKS, RiderInput, RoadSection,
-    RocketSnapshot, RocketWarning, SEAT_SWAP_TIMEOUT_SECONDS, SIMULATION_HZ, SNAPSHOT_HZ,
-    SeatChoiceRejection, SeatKind, SeatStatus, SeatSwapCancellationReason, SeatSwapRejection,
-    ServerMessage, WorldPosition, WorldSnapshot, evaluate_gunner_aim, first_cover_intersection,
-    gunner_aim_origin, line_of_sight_blocked, riverside_course,
+    PLAYER_MISSILE_SPEED_MPS, PlayerMissileSnapshot, RECONNECT_RESERVATION_SECONDS, REQUIRED_SEATS,
+    ROCKET_AIM_LEAD_SECONDS, ROCKET_BLAST_RADIUS_M, ROCKET_FLIGHT_TICKS, ROCKET_WARNING_TICKS,
+    RiderInput, RoadSection, RocketSnapshot, RocketWarning, SEAT_SWAP_TIMEOUT_SECONDS,
+    SIMULATION_HZ, SNAPSHOT_HZ, SeatChoiceRejection, SeatKind, SeatStatus,
+    SeatSwapCancellationReason, SeatSwapRejection, ServerMessage, WorldPosition, WorldSnapshot,
+    evaluate_gunner_aim, first_cover_intersection, gunner_aim_origin, line_of_sight_blocked,
+    riverside_course,
 };
 use tokio::{net::TcpListener, runtime::Builder, sync::broadcast};
 
@@ -69,6 +70,9 @@ struct Room {
     pending_seat_swap: Option<PendingSeatSwap>,
     next_seat_swap_id: u64,
     outgoing_notices: Vec<RoomNotice>,
+    member_sessions: BTreeMap<u64, RoomMemberSession>,
+    match_in_progress: bool,
+    paused_fire_cooldown_ticks: u64,
     helicopter: Option<HelicopterSnapshot>,
     rocket: Option<RocketSnapshot>,
     helicopter_phase_deadline_tick: u64,
@@ -81,6 +85,7 @@ struct Room {
 #[derive(Default)]
 struct SeatSlot {
     player_id: Option<u64>,
+    connected: bool,
     ready: bool,
     last_sequence: u32,
     last_fire_request_id: u64,
@@ -93,6 +98,12 @@ struct PendingSeatSwap {
     from_seat: SeatKind,
     to_seat: SeatKind,
     expires_at: Instant,
+}
+
+struct RoomMemberSession {
+    reconnect_token: Option<String>,
+    connected: bool,
+    reserved_until: Option<Instant>,
 }
 
 #[derive(Clone)]
@@ -144,7 +155,9 @@ struct RoomDirectory {
 
 struct RoomConnection {
     entry: Arc<RoomEntry>,
+    player_id: u64,
     seat: Option<SeatKind>,
+    reconnect_token: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -154,11 +167,15 @@ enum RoomAdmissionError {
     NotFound,
     InvalidCode,
     SelectionRequired,
+    ReconnectUnavailable,
+    ReconnectInUse,
+    TokenUnavailable,
 }
 
 enum ConnectionRequest {
     Create,
     Join(String),
+    Reconnect { room_code: String, token: String },
     Solo,
     Invalid,
     None,
@@ -176,6 +193,9 @@ impl RoomDirectory {
         match request {
             ConnectionRequest::Create => self.create_public_room(player_id),
             ConnectionRequest::Join(code) => self.join_public_room(&code, player_id),
+            ConnectionRequest::Reconnect { room_code, token } => {
+                self.reconnect_public_room(&room_code, &token, player_id, now)
+            }
             ConnectionRequest::Solo => self.create_solo_room(player_id),
             ConnectionRequest::Invalid => Err(RoomAdmissionError::InvalidCode),
             ConnectionRequest::None => Err(RoomAdmissionError::SelectionRequired),
@@ -194,14 +214,20 @@ impl RoomDirectory {
 
         let code = self.next_code(false);
         let entry = RoomEntry::new(code.clone(), true, false);
+        let reconnect_token = create_reconnect_token()?;
         let seat = entry
             .room
             .lock()
             .map_err(|_| RoomAdmissionError::Full)?
-            .reserve_member(player_id, false)
+            .reserve_member(player_id, false, Some(reconnect_token.clone()))
             .map_err(|_| RoomAdmissionError::Full)?;
         self.entries.insert(code, Arc::clone(&entry));
-        Ok(RoomConnection { entry, seat })
+        Ok(RoomConnection {
+            entry,
+            player_id,
+            seat,
+            reconnect_token: Some(reconnect_token),
+        })
     }
 
     fn create_solo_room(&mut self, player_id: u64) -> Result<RoomConnection, RoomAdmissionError> {
@@ -211,10 +237,15 @@ impl RoomDirectory {
             .room
             .lock()
             .map_err(|_| RoomAdmissionError::Full)?
-            .reserve_member(player_id, true)
+            .reserve_member(player_id, true, None)
             .map_err(|_| RoomAdmissionError::Full)?;
         self.entries.insert(code, Arc::clone(&entry));
-        Ok(RoomConnection { entry, seat })
+        Ok(RoomConnection {
+            entry,
+            player_id,
+            seat,
+            reconnect_token: None,
+        })
     }
 
     fn join_public_room(
@@ -232,13 +263,50 @@ impl RoomDirectory {
             .filter(|entry| entry.inviteable)
             .cloned()
             .ok_or(RoomAdmissionError::NotFound)?;
+        let reconnect_token = create_reconnect_token()?;
         let seat = entry
             .room
             .lock()
             .map_err(|_| RoomAdmissionError::Full)?
-            .reserve_member(player_id, false)
+            .reserve_member(player_id, false, Some(reconnect_token.clone()))
             .map_err(|_| RoomAdmissionError::Full)?;
-        Ok(RoomConnection { entry, seat })
+        Ok(RoomConnection {
+            entry,
+            player_id,
+            seat,
+            reconnect_token: Some(reconnect_token),
+        })
+    }
+
+    fn reconnect_public_room(
+        &self,
+        requested_code: &str,
+        token: &str,
+        player_id: u64,
+        now: Instant,
+    ) -> Result<RoomConnection, RoomAdmissionError> {
+        let code = requested_code.to_ascii_uppercase();
+        if !is_valid_room_code(&code) {
+            return Err(RoomAdmissionError::InvalidCode);
+        }
+        let entry = self
+            .entries
+            .get(&code)
+            .filter(|entry| entry.inviteable)
+            .cloned()
+            .ok_or(RoomAdmissionError::ReconnectUnavailable)?;
+        let reconnect_token = create_reconnect_token()?;
+        let seat = entry
+            .room
+            .lock()
+            .map_err(|_| RoomAdmissionError::ReconnectUnavailable)?
+            .reconnect_member(token, player_id, reconnect_token.clone(), now)?;
+        Ok(RoomConnection {
+            entry,
+            player_id,
+            seat,
+            reconnect_token: Some(reconnect_token),
+        })
     }
 
     fn next_code(&mut self, solo: bool) -> String {
@@ -266,6 +334,12 @@ impl RoomDirectory {
 
 fn is_valid_room_code(code: &str) -> bool {
     code.len() == 6 && code.starts_with('R') && code[1..].bytes().all(|byte| byte.is_ascii_digit())
+}
+
+fn create_reconnect_token() -> Result<String, RoomAdmissionError> {
+    let mut entropy = [0_u8; 32];
+    getrandom::fill(&mut entropy).map_err(|_| RoomAdmissionError::TokenUnavailable)?;
+    Ok(entropy.iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
 impl Room {
@@ -304,6 +378,9 @@ impl Room {
             pending_seat_swap: None,
             next_seat_swap_id: 1,
             outgoing_notices: Vec::new(),
+            member_sessions: BTreeMap::new(),
+            match_in_progress: false,
+            paused_fire_cooldown_ticks: 0,
             helicopter: None,
             rocket: None,
             helicopter_phase_deadline_tick: 0,
@@ -330,8 +407,9 @@ impl Room {
                     (
                         *kind,
                         SeatStatus {
-                            connected: slot.player_id.is_some(),
+                            connected: slot.connected,
                             ready: slot.ready,
+                            reserved: slot.player_id.is_some() && !slot.connected,
                         },
                     )
                 })
@@ -347,6 +425,16 @@ impl Room {
                 })
                 .count()
                 .min(usize::from(u8::MAX)) as u8,
+            reconnect_seconds_remaining: (self.phase == GamePhase::Paused).then(|| {
+                self.member_sessions
+                    .values()
+                    .filter_map(|member| member.reserved_until)
+                    .map(|deadline| {
+                        deadline.saturating_duration_since(now).as_secs_f32().ceil() as u8
+                    })
+                    .min()
+                    .unwrap_or(RECONNECT_RESERVATION_SECONDS)
+            }),
             countdown_seconds,
             bike: self.bike,
             route_section: self.route_section,
@@ -376,10 +464,12 @@ impl Room {
             gunner_locked: self.gunner_lock_progress_ticks >= GUNNER_LOCK_TICKS
                 && self.gunner_lock_outside_since_tick.is_none(),
             gunner_can_fire: self.gunner_can_fire(now),
-            fire_cooldown_ticks_remaining: self
-                .fire_cooldown_until_tick
-                .saturating_sub(self.tick)
-                .min(u64::from(u16::MAX)) as u16,
+            fire_cooldown_ticks_remaining: (if self.phase == GamePhase::Paused {
+                self.paused_fire_cooldown_ticks
+            } else {
+                self.fire_cooldown_until_tick.saturating_sub(self.tick)
+            })
+            .min(u64::from(u16::MAX)) as u16,
             match_result: self.match_result,
             match_victory_reason: self.match_victory_reason,
         }
@@ -424,17 +514,31 @@ impl Room {
         }
     }
 
-    fn reserve_member(&mut self, player_id: u64, solo_mode: bool) -> Result<Option<SeatKind>, ()> {
+    fn reserve_member(
+        &mut self,
+        player_id: u64,
+        solo_mode: bool,
+        reconnect_token: Option<String>,
+    ) -> Result<Option<SeatKind>, ()> {
         if solo_mode {
             if !self.members.is_empty() {
                 return Err(());
             }
             self.members.insert(player_id);
+            self.member_sessions.insert(
+                player_id,
+                RoomMemberSession {
+                    reconnect_token: None,
+                    connected: true,
+                    reserved_until: None,
+                },
+            );
             self.empty_since = None;
             self.solo_player_id = Some(player_id);
             self.solo_seat = Some(SeatKind::Rider);
             for slot in self.seats.values_mut() {
                 slot.player_id = Some(player_id);
+                slot.connected = true;
                 slot.ready = false;
                 slot.last_sequence = 0;
                 slot.last_fire_request_id = 0;
@@ -446,6 +550,14 @@ impl Room {
         if self.members.len() >= REQUIRED_SEATS.len() || !self.members.insert(player_id) {
             return Err(());
         }
+        self.member_sessions.insert(
+            player_id,
+            RoomMemberSession {
+                reconnect_token,
+                connected: true,
+                reserved_until: None,
+            },
+        );
         self.empty_since = None;
         self.phase = if self.all_required_connected() {
             GamePhase::ReadyCheck
@@ -453,6 +565,57 @@ impl Room {
             GamePhase::WaitingForPlayers
         };
         Ok(None)
+    }
+
+    fn reconnect_member(
+        &mut self,
+        token: &str,
+        player_id: u64,
+        next_token: String,
+        now: Instant,
+    ) -> Result<Option<SeatKind>, RoomAdmissionError> {
+        self.expire_disconnected_members(now);
+        let Some((&old_player_id, member)) = self
+            .member_sessions
+            .iter()
+            .find(|(_, member)| member.reconnect_token.as_deref() == Some(token))
+        else {
+            return Err(RoomAdmissionError::ReconnectUnavailable);
+        };
+        if member.connected {
+            return Err(RoomAdmissionError::ReconnectInUse);
+        }
+        if member.reserved_until.is_none_or(|deadline| now >= deadline) {
+            return Err(RoomAdmissionError::ReconnectUnavailable);
+        }
+
+        let previous = self
+            .seats
+            .iter()
+            .find_map(|(seat, slot)| (slot.player_id == Some(old_player_id)).then_some(*seat));
+        let mut member = self
+            .member_sessions
+            .remove(&old_player_id)
+            .expect("matched member exists");
+        member.reconnect_token = Some(next_token);
+        member.connected = true;
+        member.reserved_until = None;
+        self.members.remove(&old_player_id);
+        self.members.insert(player_id);
+        self.member_sessions.insert(player_id, member);
+        for slot in self.seats.values_mut() {
+            if slot.player_id == Some(old_player_id) {
+                slot.player_id = Some(player_id);
+                slot.connected = true;
+                slot.ready = false;
+                slot.last_sequence = 0;
+                slot.last_fire_request_id = 0;
+            }
+        }
+        if self.phase == GamePhase::WaitingForPlayers && self.all_required_connected() {
+            self.phase = GamePhase::ReadyCheck;
+        }
+        Ok(previous)
     }
 
     fn choose_seat(&mut self, player_id: u64, seat: SeatKind) -> Result<(), SeatChoiceRejection> {
@@ -485,6 +648,7 @@ impl Room {
         if let Some(previous) = previous {
             let slot = self.seats.get_mut(&previous).expect("seat exists");
             slot.player_id = None;
+            slot.connected = false;
             slot.ready = false;
             slot.last_sequence = 0;
             slot.last_fire_request_id = 0;
@@ -504,6 +668,7 @@ impl Room {
 
         let target = self.seats.get_mut(&seat).expect("seat exists");
         target.player_id = Some(player_id);
+        target.connected = true;
         target.ready = false;
         target.last_sequence = 0;
         target.last_fire_request_id = 0;
@@ -625,6 +790,7 @@ impl Room {
             .get_mut(&pending.from_seat)
             .expect("required seat exists");
         from_slot.player_id = Some(pending.target_id);
+        from_slot.connected = true;
         from_slot.ready = false;
         from_slot.last_sequence = 0;
         from_slot.last_fire_request_id = 0;
@@ -634,6 +800,7 @@ impl Room {
             .get_mut(&pending.to_seat)
             .expect("required seat exists");
         to_slot.player_id = Some(pending.requester_id);
+        to_slot.connected = true;
         to_slot.ready = false;
         to_slot.last_sequence = 0;
         to_slot.last_fire_request_id = 0;
@@ -686,18 +853,20 @@ impl Room {
         std::mem::take(&mut self.outgoing_notices)
     }
 
-    fn release_member(&mut self, player_id: u64) {
+    fn remove_member(&mut self, player_id: u64) -> bool {
         if !self.members.remove(&player_id) {
-            return;
+            return false;
         }
         if self.pending_seat_swap.as_ref().is_some_and(|pending| {
             pending.requester_id == player_id || pending.target_id == player_id
         }) {
             self.cancel_pending_seat_swap(SeatSwapCancellationReason::MemberLeft);
         }
+        self.member_sessions.remove(&player_id);
         for slot in self.seats.values_mut() {
             if slot.player_id == Some(player_id) {
                 slot.player_id = None;
+                slot.connected = false;
                 slot.ready = false;
                 slot.last_sequence = 0;
                 slot.last_fire_request_id = 0;
@@ -710,13 +879,166 @@ impl Room {
         for slot in self.seats.values_mut() {
             slot.ready = false;
         }
+        self.empty_since = self.members.is_empty().then(Instant::now);
+        true
+    }
+
+    fn release_member(&mut self, player_id: u64) {
+        if !self.remove_member(player_id) {
+            return;
+        }
         self.reset_match();
         self.phase = if self.all_required_connected() {
             GamePhase::ReadyCheck
         } else {
             GamePhase::WaitingForPlayers
         };
-        self.empty_since = self.members.is_empty().then(Instant::now);
+    }
+
+    fn disconnect_member(&mut self, player_id: u64, now: Instant) {
+        if !self.members.contains(&player_id) {
+            return;
+        }
+        if self.solo_player_id == Some(player_id) {
+            self.release_member(player_id);
+            return;
+        }
+        if let Some(member) = self.member_sessions.get_mut(&player_id) {
+            if !member.connected {
+                return;
+            }
+            member.connected = false;
+            member.reserved_until =
+                Some(now + Duration::from_secs(u64::from(RECONNECT_RESERVATION_SECONDS)));
+        }
+        if self.pending_seat_swap.as_ref().is_some_and(|pending| {
+            pending.requester_id == player_id || pending.target_id == player_id
+        }) {
+            self.cancel_pending_seat_swap(SeatSwapCancellationReason::MemberLeft);
+        }
+        for slot in self.seats.values_mut() {
+            if slot.player_id == Some(player_id) {
+                slot.connected = false;
+            }
+            slot.ready = false;
+        }
+        if self.phase == GamePhase::Running {
+            self.pause_running_match();
+        } else if self.phase == GamePhase::Countdown {
+            self.countdown_deadline = None;
+            self.phase = if self.match_in_progress {
+                GamePhase::Paused
+            } else {
+                GamePhase::WaitingForPlayers
+            };
+        } else if self.phase != GamePhase::Finished && self.phase != GamePhase::Paused {
+            self.phase = GamePhase::WaitingForPlayers;
+        }
+    }
+
+    fn pause_running_match(&mut self) {
+        self.phase = GamePhase::Paused;
+        self.countdown_deadline = None;
+        self.paused_fire_cooldown_ticks = self.fire_cooldown_until_tick.saturating_sub(self.tick);
+        self.rider_input = RiderInput::default();
+        self.last_rider_input_at = None;
+        self.last_applied_rider_sequence = 0;
+        self.gunner_input = GunnerInput::default();
+        self.last_gunner_input_at = None;
+        self.clear_gunner_lock();
+        self.player_missile = None;
+        self.rocket = None;
+        if let Some(mut helicopter) = self.helicopter {
+            helicopter.warning = None;
+            self.helicopter = Some(helicopter);
+        }
+    }
+
+    fn leave_member(&mut self, player_id: u64) {
+        if self.phase == GamePhase::Running
+            || self.phase == GamePhase::Paused
+            || (self.phase == GamePhase::Countdown && self.match_in_progress)
+        {
+            self.abort_match();
+        }
+        if !self.remove_member(player_id) {
+            return;
+        }
+        if self.phase != GamePhase::Finished {
+            self.countdown_deadline = None;
+            self.phase = if self.all_required_connected() {
+                GamePhase::ReadyCheck
+            } else {
+                GamePhase::WaitingForPlayers
+            };
+        }
+    }
+
+    fn abort_match(&mut self) {
+        self.phase = GamePhase::Finished;
+        self.countdown_deadline = None;
+        self.match_in_progress = false;
+        self.match_result = Some(MatchResult::Aborted);
+        self.match_victory_reason = None;
+        for slot in self.seats.values_mut() {
+            slot.ready = false;
+        }
+        self.rider_input = RiderInput::default();
+        self.last_rider_input_at = None;
+        self.gunner_input = GunnerInput::default();
+        self.last_gunner_input_at = None;
+        self.clear_gunner_lock();
+        self.player_missile = None;
+        self.rocket = None;
+        if let Some(mut helicopter) = self.helicopter {
+            helicopter.warning = None;
+            self.helicopter = Some(helicopter);
+        }
+        self.push_combat_event(
+            0,
+            CombatEventKind::MatchFinished {
+                result: MatchResult::Aborted,
+                victory_reason: None,
+            },
+            WorldPosition {
+                x: self.bike.x,
+                y: 0.0,
+                z: self.bike.z,
+            },
+        );
+    }
+
+    fn expire_disconnected_members(&mut self, now: Instant) {
+        let expired = self
+            .member_sessions
+            .iter()
+            .filter_map(|(player_id, member)| {
+                (!member.connected
+                    && member
+                        .reserved_until
+                        .is_some_and(|deadline| now >= deadline))
+                .then_some(*player_id)
+            })
+            .collect::<Vec<_>>();
+        if expired.is_empty() {
+            return;
+        }
+        if self.phase == GamePhase::Paused
+            || (self.phase == GamePhase::Countdown && self.match_in_progress)
+        {
+            self.abort_match();
+        }
+        for player_id in expired {
+            self.remove_member(player_id);
+        }
+        if self.phase != GamePhase::Finished {
+            self.phase = if self.all_required_connected() {
+                GamePhase::ReadyCheck
+            } else {
+                GamePhase::WaitingForPlayers
+            };
+            self.countdown_deadline = None;
+        }
     }
 
     fn reset_match(&mut self) {
@@ -739,6 +1061,8 @@ impl Room {
         self.fire_cooldown_until_tick = 0;
         self.match_result = None;
         self.match_victory_reason = None;
+        self.match_in_progress = false;
+        self.paused_fire_cooldown_ticks = 0;
         self.bike = BikeState::default();
         self.reset_route_progress();
         self.helicopter = None;
@@ -749,6 +1073,8 @@ impl Room {
     }
 
     fn begin_running(&mut self) {
+        self.match_in_progress = true;
+        self.paused_fire_cooldown_ticks = 0;
         self.reset_route_progress();
         self.bike_health = BIKE_STARTING_HEALTH;
         self.helicopter_health = HELICOPTER_STARTING_HEALTH;
@@ -775,8 +1101,31 @@ impl Room {
         self.helicopter_phase_deadline_tick = self.tick + HELICOPTER_CHASE_TICKS;
     }
 
+    fn resume_running(&mut self) {
+        self.phase = GamePhase::Running;
+        self.countdown_deadline = None;
+        self.rider_input = RiderInput::default();
+        self.last_rider_input_at = None;
+        self.last_applied_rider_sequence = 0;
+        self.gunner_input = GunnerInput::default();
+        self.last_gunner_input_at = None;
+        self.clear_gunner_lock();
+        self.player_missile = None;
+        self.rocket = None;
+        self.fire_cooldown_until_tick = self.tick + self.paused_fire_cooldown_ticks;
+        self.paused_fire_cooldown_ticks = 0;
+        if let Some(mut helicopter) = self.helicopter {
+            helicopter.phase = HelicopterPhase::Chasing;
+            helicopter.warning = None;
+            self.helicopter = Some(helicopter);
+        }
+        self.helicopter_phase_deadline_tick = self.tick + HELICOPTER_CHASE_TICKS;
+        self.match_in_progress = true;
+    }
+
     fn advance_tick(&mut self, now: Instant) -> Option<WorldSnapshot> {
         self.tick += 1;
+        self.expire_disconnected_members(now);
         if self
             .pending_seat_swap
             .as_ref()
@@ -786,14 +1135,13 @@ impl Room {
         }
         let both_connected = self.all_required_connected();
         let both_ready = self.all_required_ready();
-        let was_running = self.phase == GamePhase::Running;
 
-        if !both_connected {
-            if was_running {
-                self.reset_match();
+        if self.phase == GamePhase::Paused {
+            if both_connected && both_ready {
+                self.phase = GamePhase::Countdown;
+                self.countdown_deadline =
+                    Some(now + Duration::from_secs(u64::from(COUNTDOWN_SECONDS)));
             }
-            self.phase = GamePhase::WaitingForPlayers;
-            self.countdown_deadline = None;
         } else if self.phase == GamePhase::Finished {
             if both_ready && self.pending_seat_swap.is_none() {
                 self.reset_match();
@@ -801,21 +1149,37 @@ impl Room {
                 self.countdown_deadline =
                     Some(now + Duration::from_secs(u64::from(COUNTDOWN_SECONDS)));
             }
-        } else if self.phase != GamePhase::Running {
+        } else if !both_connected {
+            self.phase = GamePhase::WaitingForPlayers;
+            self.countdown_deadline = None;
+        } else if self.phase == GamePhase::Countdown {
             if both_ready && self.pending_seat_swap.is_none() {
-                if self.phase != GamePhase::Countdown {
-                    self.phase = GamePhase::Countdown;
-                    self.countdown_deadline =
-                        Some(now + Duration::from_secs(u64::from(COUNTDOWN_SECONDS)));
-                } else if self
+                if self
                     .countdown_deadline
                     .is_some_and(|deadline| now >= deadline)
                 {
-                    self.phase = GamePhase::Running;
-                    self.countdown_deadline = None;
-                    self.rider_input = RiderInput::default();
-                    self.begin_running();
+                    if self.match_in_progress {
+                        self.resume_running();
+                    } else {
+                        self.phase = GamePhase::Running;
+                        self.countdown_deadline = None;
+                        self.rider_input = RiderInput::default();
+                        self.begin_running();
+                    }
                 }
+            } else {
+                self.countdown_deadline = None;
+                self.phase = if self.match_in_progress {
+                    GamePhase::Paused
+                } else {
+                    GamePhase::ReadyCheck
+                };
+            }
+        } else if self.phase != GamePhase::Running {
+            if both_ready && self.pending_seat_swap.is_none() {
+                self.phase = GamePhase::Countdown;
+                self.countdown_deadline =
+                    Some(now + Duration::from_secs(u64::from(COUNTDOWN_SECONDS)));
             } else {
                 self.phase = GamePhase::ReadyCheck;
                 self.countdown_deadline = None;
@@ -1210,6 +1574,7 @@ impl Room {
         self.phase = GamePhase::Finished;
         self.match_result = Some(result);
         self.match_victory_reason = victory_reason;
+        self.match_in_progress = false;
         self.countdown_deadline = None;
         for slot in self.seats.values_mut() {
             slot.ready = false;
@@ -1324,7 +1689,7 @@ impl Room {
                 && self
                     .seats
                     .get(&SeatKind::Gunner)
-                    .is_some_and(|slot| slot.player_id == Some(player_id));
+                    .is_some_and(|slot| slot.player_id == Some(player_id) && slot.connected);
             if authorized {
                 self.handle_fire_request(*request_id, *tick, Instant::now());
             }
@@ -1344,7 +1709,7 @@ impl Room {
         if !self
             .seats
             .get(&seat)
-            .is_some_and(|slot| slot.player_id == Some(player_id))
+            .is_some_and(|slot| slot.player_id == Some(player_id) && slot.connected)
         {
             return;
         }
@@ -1356,7 +1721,9 @@ impl Room {
                             slot.ready = false;
                         }
                         self.countdown_deadline = None;
-                        self.phase = if self.all_required_connected() {
+                        self.phase = if self.match_in_progress {
+                            GamePhase::Paused
+                        } else if self.all_required_connected() {
                             GamePhase::ReadyCheck
                         } else {
                             GamePhase::WaitingForPlayers
@@ -1415,6 +1782,7 @@ impl Room {
             | ClientMessage::RequestSeatSwap
             | ClientMessage::RespondSeatSwap { .. }
             | ClientMessage::ForceStartSolo
+            | ClientMessage::LeaveRoom
             | ClientMessage::SwitchSeat { .. }
             | ClientMessage::RiderInput { .. }
             | ClientMessage::GunnerInput { .. }
@@ -1426,7 +1794,7 @@ impl Room {
         REQUIRED_SEATS.iter().all(|seat| {
             self.seats
                 .get(seat)
-                .is_some_and(|slot| slot.player_id.is_some())
+                .is_some_and(|slot| slot.player_id.is_some() && slot.connected)
         })
     }
 
@@ -1573,7 +1941,9 @@ async fn handle_socket(
             return;
         }
     };
+    let player_id = connection.player_id;
     let mut seat = connection.seat;
+    let reconnect_token = connection.reconnect_token;
     let entry = connection.entry;
 
     let welcome = ServerMessage::Welcome {
@@ -1581,6 +1951,7 @@ async fn handle_socket(
         room_code: entry.code.clone(),
         seat,
         solo_mode: entry.solo_mode,
+        reconnect_token,
     };
     let encoded = serde_json::to_string(&welcome).expect("serializing welcome message");
     if socket
@@ -1603,6 +1974,23 @@ async fn handle_socket(
                     axum::extract::ws::Message::Text(text) => {
                         if let Ok(message) = serde_json::from_str::<ClientMessage>(text.as_str()) {
                             match message {
+                                ClientMessage::LeaveRoom => {
+                                    let room_notices = match entry.room.lock() {
+                                        Ok(mut room) => {
+                                            room.leave_member(player_id);
+                                            room.take_notices()
+                                        }
+                                        Err(error) => {
+                                            eprintln!("Room state lock was poisoned: {error}");
+                                            Vec::new()
+                                        }
+                                    };
+                                    publish_room_notices(&entry, room_notices);
+                                    let response = serde_json::to_string(&ServerMessage::RoomLeft)
+                                        .expect("serializing RoomLeft");
+                                    let _ = sender.send(axum::extract::ws::Message::Text(response.into())).await;
+                                    break;
+                                }
                                 ClientMessage::ChooseSeat { seat: requested_seat } => {
                                     let (result, room_notices) = match entry.room.lock() {
                                         Ok(mut room) => {
@@ -1771,6 +2159,10 @@ fn admission_message(error: RoomAdmissionError) -> ServerMessage {
         RoomAdmissionError::NotFound => ServerMessage::RoomNotFound,
         RoomAdmissionError::InvalidCode => ServerMessage::InvalidRoomCode,
         RoomAdmissionError::SelectionRequired => ServerMessage::RoomSelectionRequired,
+        RoomAdmissionError::ReconnectUnavailable | RoomAdmissionError::TokenUnavailable => {
+            ServerMessage::ReconnectUnavailable
+        }
+        RoomAdmissionError::ReconnectInUse => ServerMessage::ReconnectInUse,
     }
 }
 
@@ -1778,6 +2170,7 @@ fn parse_connection_request(query: Option<&str>) -> ConnectionRequest {
     let mut create = false;
     let mut solo = false;
     let mut room = None;
+    let mut reconnect = None;
     let mut invalid = false;
     for parameter in query
         .unwrap_or_default()
@@ -1789,18 +2182,29 @@ fn parse_connection_request(query: Option<&str>) -> ConnectionRequest {
             "create" if value == "1" => create = true,
             "solo" if value == "1" => solo = true,
             "room" if !value.is_empty() && room.is_none() => room = Some(value.to_owned()),
+            "reconnect" if !value.is_empty() && reconnect.is_none() => {
+                reconnect = Some(value.to_owned())
+            }
             "server" => {}
             "" => {}
             _ => invalid = true,
         }
     }
-    if invalid || (solo && (create || room.is_some())) || (create && room.is_some()) {
+    if invalid
+        || (solo && (create || room.is_some() || reconnect.is_some()))
+        || (create && (room.is_some() || reconnect.is_some()))
+        || (reconnect.is_some() && room.is_none())
+    {
         return ConnectionRequest::Invalid;
     }
     if solo {
         ConnectionRequest::Solo
     } else if create {
         ConnectionRequest::Create
+    } else if let Some(token) = reconnect {
+        room.map_or(ConnectionRequest::Invalid, |room_code| {
+            ConnectionRequest::Reconnect { room_code, token }
+        })
     } else if let Some(room) = room {
         ConnectionRequest::Join(room)
     } else {
@@ -1810,7 +2214,7 @@ fn parse_connection_request(query: Option<&str>) -> ConnectionRequest {
 
 fn disconnect(entry: &RoomEntry, player_id: u64) {
     let notices = if let Ok(mut room) = entry.room.lock() {
-        room.release_member(player_id);
+        room.disconnect_member(player_id, Instant::now());
         room.take_notices()
     } else {
         Vec::new()
@@ -1851,8 +2255,8 @@ fn tick_rooms(runtime: Res<ServerRuntime>) {
 #[cfg(test)]
 mod tests {
     use super::{
-        ConnectionRequest, Room, RoomAdmissionError, RoomDirectory, input_tick_is_valid,
-        is_valid_room_code, move_helicopter_toward,
+        ConnectionRequest, Room, RoomAdmissionError, RoomDirectory, RoomMemberSession,
+        input_tick_is_valid, is_valid_room_code, move_helicopter_toward,
     };
     use riverside_common::{
         BIKE_ROCKET_DAMAGE, BIKE_STARTING_HEALTH, BRIDGE_DECK_BOTTOM_M, BikeState, ClientMessage,
@@ -1873,8 +2277,14 @@ mod tests {
     #[test]
     fn room_members_choose_any_open_role_and_unassigned_members_cannot_ready() {
         let mut room = Room::new();
-        assert_eq!(room.reserve_member(11, false), Ok(None));
-        assert_eq!(room.reserve_member(22, false), Ok(None));
+        assert_eq!(
+            room.reserve_member(11, false, Some("token-11".to_owned())),
+            Ok(None)
+        );
+        assert_eq!(
+            room.reserve_member(22, false, Some("token-22".to_owned())),
+            Ok(None)
+        );
         assert_eq!(room.snapshot(Instant::now()).unassigned_players, 2);
 
         // A client that has not selected a seat cannot ready, even if it sends
@@ -1907,9 +2317,18 @@ mod tests {
     #[test]
     fn role_claims_are_atomic_capacity_counts_unassigned_members_and_running_locks_seats() {
         let mut room = Room::new();
-        assert_eq!(room.reserve_member(1, false), Ok(None));
-        assert_eq!(room.reserve_member(2, false), Ok(None));
-        assert_eq!(room.reserve_member(3, false), Err(()));
+        assert_eq!(
+            room.reserve_member(1, false, Some("token-1".to_owned())),
+            Ok(None)
+        );
+        assert_eq!(
+            room.reserve_member(2, false, Some("token-2".to_owned())),
+            Ok(None)
+        );
+        assert_eq!(
+            room.reserve_member(3, false, Some("token-3".to_owned())),
+            Err(())
+        );
         assert_eq!(room.choose_seat(1, super::SeatKind::Rider), Ok(()));
         assert_eq!(
             room.choose_seat(2, super::SeatKind::Rider),
@@ -1934,8 +2353,10 @@ mod tests {
     fn consensual_seat_swap_clears_ready_and_pending_request_blocks_countdown() {
         let mut room = Room::new();
         let now = Instant::now();
-        room.reserve_member(11, false).unwrap();
-        room.reserve_member(22, false).unwrap();
+        room.reserve_member(11, false, Some("token-11".to_owned()))
+            .unwrap();
+        room.reserve_member(22, false, Some("token-22".to_owned()))
+            .unwrap();
         room.choose_seat(11, super::SeatKind::Rider).unwrap();
         room.choose_seat(22, super::SeatKind::Gunner).unwrap();
         room.receive(
@@ -2050,8 +2471,10 @@ mod tests {
     fn seat_swap_rejection_expiration_and_disconnect_never_exchange_seats() {
         let mut room = Room::new();
         let now = Instant::now();
-        room.reserve_member(11, false).unwrap();
-        room.reserve_member(22, false).unwrap();
+        room.reserve_member(11, false, Some("token-11".to_owned()))
+            .unwrap();
+        room.reserve_member(22, false, Some("token-22".to_owned()))
+            .unwrap();
         room.choose_seat(11, super::SeatKind::Rider).unwrap();
         room.choose_seat(22, super::SeatKind::Gunner).unwrap();
 
@@ -2116,8 +2539,10 @@ mod tests {
         let room = Arc::new(Mutex::new(Room::new()));
         {
             let mut room = room.lock().unwrap();
-            room.reserve_member(1, false).unwrap();
-            room.reserve_member(2, false).unwrap();
+            room.reserve_member(1, false, Some("token-1".to_owned()))
+                .unwrap();
+            room.reserve_member(2, false, Some("token-2".to_owned()))
+                .unwrap();
         }
         let barrier = Arc::new(Barrier::new(3));
         let contenders = [1_u64, 2_u64].map(|player_id| {
@@ -2243,6 +2668,202 @@ mod tests {
     }
 
     #[test]
+    fn reconnect_rotates_room_scoped_token_and_rejects_live_or_cross_room_tokens() {
+        let mut rooms = RoomDirectory::default();
+        let first = rooms.admit(ConnectionRequest::Create, 1).unwrap();
+        let second = rooms.admit(ConnectionRequest::Create, 2).unwrap();
+        let token = first.reconnect_token.clone().unwrap();
+        let now = Instant::now();
+
+        assert_eq!(token.len(), 64);
+        assert_eq!(
+            rooms
+                .reconnect_public_room(&second.entry.code, &token, 3, now)
+                .err(),
+            Some(RoomAdmissionError::ReconnectUnavailable)
+        );
+        assert_eq!(
+            rooms
+                .reconnect_public_room(&first.entry.code, &token, 3, now)
+                .err(),
+            Some(RoomAdmissionError::ReconnectInUse)
+        );
+
+        first.entry.room.lock().unwrap().disconnect_member(1, now);
+        let resumed = rooms
+            .reconnect_public_room(&first.entry.code, &token, 4, now + Duration::from_secs(1))
+            .unwrap();
+        let next_token = resumed.reconnect_token.unwrap();
+        assert_ne!(token, next_token);
+        assert!(first.entry.room.lock().unwrap().members.contains(&4));
+        assert!(!first.entry.room.lock().unwrap().members.contains(&1));
+        assert_eq!(
+            rooms
+                .reconnect_public_room(&first.entry.code, &token, 5, now + Duration::from_secs(2))
+                .err(),
+            Some(RoomAdmissionError::ReconnectUnavailable)
+        );
+    }
+
+    #[test]
+    fn unexpected_running_disconnect_pauses_and_resume_preserves_match_state() {
+        let mut room = running_room();
+        let now = Instant::now();
+        let point = riverside_course().point_at(123.5);
+        room.bike.x = point.center_x;
+        room.bike.z = point.center_z;
+        room.bike.yaw = point.yaw;
+        room.bike.speed = 0.0;
+        room.bike_health = 57;
+        room.helicopter_health = 38;
+        room.gunner_ammo = 2;
+        room.route_distance_m = 123.5;
+        room.route_checkpoints_passed = 2;
+        room.fire_cooldown_until_tick = room.tick + 17;
+        room.rider_input.pedal_held = true;
+        room.gunner_input.aim_held = true;
+        room.gunner_lock_progress_ticks = 60;
+        room.player_missile = Some(PlayerMissileSnapshot {
+            attack_id: 9,
+            launch_position: WorldPosition::default(),
+            position: WorldPosition::default(),
+            launch_tick: room.tick,
+            expires_tick: room.tick + 10,
+        });
+        room.rocket = Some(RocketSnapshot {
+            attack_id: 10,
+            launch_position: WorldPosition::default(),
+            position: WorldPosition::default(),
+            impact_position: WorldPosition::default(),
+            launch_tick: room.tick,
+            impact_tick: room.tick + 10,
+        });
+        let mut helicopter = room.helicopter.unwrap();
+        helicopter.phase = HelicopterPhase::Telegraph;
+        helicopter.warning = Some(RocketWarning {
+            attack_id: 10,
+            impact_position: WorldPosition::default(),
+            impact_tick: room.tick + 10,
+            blast_radius_m: ROCKET_BLAST_RADIUS_M,
+        });
+        room.helicopter = Some(helicopter);
+        let expected_cooldown = room.fire_cooldown_until_tick - room.tick;
+
+        room.disconnect_member(1, now);
+        assert_eq!(room.phase, GamePhase::Paused);
+        assert!(!room.seats[&super::SeatKind::Rider].connected);
+        assert!(room.seats[&super::SeatKind::Rider].player_id.is_some());
+        assert!(room.player_missile.is_none());
+        assert!(room.rocket.is_none());
+        assert!(room.helicopter.unwrap().warning.is_none());
+        assert!(!room.rider_input.pedal_held);
+        assert!(!room.gunner_input.aim_held);
+        assert_eq!(room.gunner_lock_progress_ticks, 0);
+        assert_eq!(
+            room.snapshot(now).fire_cooldown_ticks_remaining as u64,
+            expected_cooldown
+        );
+
+        let bike = room.bike;
+        let health = room.bike_health;
+        let helicopter_health = room.helicopter_health;
+        let ammo = room.gunner_ammo;
+        let route_distance = room.route_distance_m;
+        room.advance_tick(now + Duration::from_secs(2));
+        assert_eq!(room.phase, GamePhase::Paused);
+        assert_eq!(room.bike, bike);
+        assert_eq!(room.bike_health, health);
+        assert_eq!(room.helicopter_health, helicopter_health);
+        assert_eq!(room.gunner_ammo, ammo);
+        assert_eq!(room.route_distance_m, route_distance);
+        assert_eq!(
+            room.snapshot(now).fire_cooldown_ticks_remaining as u64,
+            expected_cooldown
+        );
+
+        assert_eq!(
+            room.reconnect_member(
+                "test-1",
+                99,
+                "rotated-token".to_owned(),
+                now + Duration::from_secs(2)
+            ),
+            Ok(Some(super::SeatKind::Rider))
+        );
+        assert_eq!(room.seats[&super::SeatKind::Rider].player_id, Some(99));
+        assert!(room.seats[&super::SeatKind::Rider].connected);
+        assert_eq!(
+            room.reconnect_member("rotated-token", 100, "other-token".to_owned(), now),
+            Err(RoomAdmissionError::ReconnectInUse)
+        );
+
+        room.receive(
+            99,
+            super::SeatKind::Rider,
+            ClientMessage::SetReady { ready: true },
+        );
+        room.receive(
+            2,
+            super::SeatKind::Gunner,
+            ClientMessage::SetReady { ready: true },
+        );
+        room.advance_tick(now + Duration::from_secs(2));
+        assert_eq!(room.phase, GamePhase::Countdown);
+        assert_eq!(room.bike, bike);
+        assert_eq!(room.bike_health, health);
+        assert_eq!(room.helicopter_health, helicopter_health);
+        assert_eq!(room.gunner_ammo, ammo);
+        assert_eq!(room.route_distance_m, route_distance);
+        room.advance_tick(now + Duration::from_secs(8));
+        assert_eq!(room.phase, GamePhase::Running);
+        assert_eq!(room.bike, bike);
+        assert_eq!(room.bike_health, health);
+        assert_eq!(room.helicopter_health, helicopter_health);
+        assert_eq!(room.gunner_ammo, ammo);
+        assert_eq!(room.route_distance_m, route_distance);
+        assert!(room.helicopter.unwrap().warning.is_none());
+        assert_eq!(
+            room.helicopter_phase_deadline_tick,
+            room.tick + HELICOPTER_CHASE_TICKS
+        );
+    }
+
+    #[test]
+    fn reconnect_reservation_expiry_aborts_match_and_explicit_leave_aborts() {
+        let now = Instant::now();
+        let mut room = running_room();
+        room.disconnect_member(1, now);
+        room.advance_tick(now + Duration::from_secs(31));
+        assert_eq!(room.phase, GamePhase::Finished);
+        assert_eq!(room.match_result, Some(MatchResult::Aborted));
+        assert!(!room.members.contains(&1));
+        assert!(room.seats[&super::SeatKind::Rider].player_id.is_none());
+
+        let mut room = running_room();
+        room.leave_member(1);
+        assert_eq!(room.phase, GamePhase::Finished);
+        assert_eq!(room.match_result, Some(MatchResult::Aborted));
+        assert!(!room.members.contains(&1));
+        assert!(room.seats[&super::SeatKind::Rider].player_id.is_none());
+    }
+
+    #[test]
+    fn disconnect_during_initial_countdown_cancels_both_ready_flags() {
+        let now = Instant::now();
+        let mut room = Room::new();
+        connect_and_ready_both_seats(&mut room);
+        room.phase = GamePhase::Countdown;
+        room.countdown_deadline = Some(now + Duration::from_secs(5));
+        room.disconnect_member(1, now);
+        assert_eq!(room.phase, GamePhase::WaitingForPlayers);
+        assert!(room.countdown_deadline.is_none());
+        assert!(room.seats.values().all(|slot| !slot.ready));
+        room.advance_tick(now + Duration::from_secs(1));
+        assert_eq!(room.phase, GamePhase::WaitingForPlayers);
+        assert_eq!(room.match_result, None);
+    }
+
+    #[test]
     fn input_tick_validation_allows_network_delay_but_rejects_stale_or_future_values() {
         assert!(input_tick_is_valid(1_000, 700));
         assert!(input_tick_is_valid(1_000, 1_003));
@@ -2363,8 +2984,17 @@ mod tests {
             let slot = room.seats.get_mut(&seat).expect("required seat exists");
             let player_id = index as u64 + 1;
             slot.player_id = Some(player_id);
+            slot.connected = true;
             slot.ready = true;
             room.members.insert(player_id);
+            room.member_sessions.insert(
+                player_id,
+                RoomMemberSession {
+                    reconnect_token: Some(format!("test-{player_id}")),
+                    connected: true,
+                    reserved_until: None,
+                },
+            );
         }
         room.empty_since = None;
     }

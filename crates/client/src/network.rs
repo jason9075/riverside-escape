@@ -23,6 +23,11 @@ pub struct NetworkClient {
     pub room_selection_required: bool,
     pub invalid_room_code: bool,
     pub solo_unavailable: bool,
+    pub reconnect_unavailable: bool,
+    pub reconnect_in_use: bool,
+    pub connection_lost: bool,
+    pub reconnect_seconds_remaining: Option<u8>,
+    pub reconnect_token: Option<String>,
     pub solo_mode: bool,
     pub player_id: Option<u64>,
     pub room_code: Option<String>,
@@ -60,6 +65,11 @@ impl Default for NetworkClient {
             room_selection_required: false,
             invalid_room_code: false,
             solo_unavailable: false,
+            reconnect_unavailable: false,
+            reconnect_in_use: false,
+            connection_lost: false,
+            reconnect_seconds_remaining: None,
+            reconnect_token: None,
             solo_mode: false,
             player_id: None,
             room_code: None,
@@ -125,10 +135,15 @@ pub fn pump_network(mut network: ResMut<NetworkClient>, mut session: ResMut<Game
                 room_code,
                 seat,
                 solo_mode,
+                reconnect_token,
             } => {
                 network.connected = true;
+                network.connection_lost = false;
+                network.reconnect_unavailable = false;
+                network.reconnect_in_use = false;
                 network.player_id = Some(player_id);
                 network.room_code = Some(room_code);
+                network.reconnect_token = reconnect_token;
                 network.seat = seat;
                 network.solo_mode = solo_mode;
                 if let Some(seat) = seat {
@@ -218,6 +233,7 @@ pub fn pump_network(mut network: ResMut<NetworkClient>, mut session: ResMut<Game
                 session.apply_combat_snapshot(&snapshot);
                 session.seats = snapshot.seats.clone();
                 network.unassigned_players = snapshot.unassigned_players;
+                network.reconnect_seconds_remaining = snapshot.reconnect_seconds_remaining;
                 if let Some(seat) = network.seat {
                     session.ready = snapshot.seats.get(&seat).is_some_and(|status| status.ready);
                 }
@@ -259,6 +275,30 @@ pub fn pump_network(mut network: ResMut<NetworkClient>, mut session: ResMut<Game
                 network.solo_unavailable = true;
                 network.connected = false;
             }
+            ServerMessage::ReconnectUnavailable => {
+                network.reconnect_unavailable = true;
+                network.connection_lost = false;
+                network.connected = false;
+            }
+            ServerMessage::ReconnectInUse => {
+                network.reconnect_in_use = true;
+                network.connection_lost = false;
+                network.connected = false;
+            }
+            ServerMessage::RoomLeft => {
+                network.connected = false;
+                network.connection_lost = false;
+                network.reconnect_token = None;
+                network.room_code = None;
+            }
+            ServerMessage::ConnectionLost => {
+                network.connected = false;
+                network.connection_lost = network.room_code.is_some();
+                session.is_connected = false;
+                if network.connection_lost {
+                    session.phase = GamePhase::Paused;
+                }
+            }
         }
     }
     if !network.connected {
@@ -289,7 +329,7 @@ mod browser_socket {
         ClientMessage, GamePhase, SeatChoiceRejection, SeatKind, ServerMessage,
     };
     use wasm_bindgen::{JsCast, closure::Closure};
-    use web_sys::{Document, Event, HtmlInputElement, MessageEvent, WebSocket};
+    use web_sys::{Document, Event, HtmlInputElement, MessageEvent, Storage, WebSocket};
 
     use super::NetworkClient;
 
@@ -297,15 +337,20 @@ mod browser_socket {
         static SOCKET: RefCell<Option<WebSocket>> = const { RefCell::new(None) };
         static MESSAGE_CALLBACK: RefCell<Option<Closure<dyn FnMut(MessageEvent)>>> = const { RefCell::new(None) };
         static UI_CALLBACKS: RefCell<Vec<Closure<dyn FnMut(Event)>>> = const { RefCell::new(Vec::new()) };
+        static SOCKET_CALLBACKS: RefCell<Vec<Closure<dyn FnMut(Event)>>> = const { RefCell::new(Vec::new()) };
+        static RETRY_CALLBACKS: RefCell<Vec<Closure<dyn FnMut()>>> = const { RefCell::new(Vec::new()) };
         static READY_STATE: Cell<bool> = const { Cell::new(false) };
         static PENDING_SWAP_ID: Cell<Option<u64>> = const { Cell::new(None) };
+        static RETRY_ENABLED: Cell<bool> = const { Cell::new(true) };
+        static RETRY_SCHEDULED: Cell<bool> = const { Cell::new(false) };
+        static RECONNECT_ROOM: RefCell<Option<String>> = const { RefCell::new(None) };
     }
 
     pub(super) fn connect(
         sender: mpsc::Sender<ServerMessage>,
         outgoing: mpsc::Sender<ClientMessage>,
     ) {
-        install_lobby_handlers(outgoing);
+        install_lobby_handlers(outgoing.clone());
         let Some(window) = web_sys::window() else {
             error!("Browser window is unavailable; running in local preview mode.");
             return;
@@ -328,11 +373,15 @@ mod browser_socket {
             .as_ref()
             .and_then(|params| params.get("create"))
             .is_some_and(|value| value == "1");
-        let room_code = params.as_ref().and_then(|params| params.get("room"));
-        if !requested_solo && !create_room && room_code.is_none() {
-            return;
-        }
-        let mut address = custom.unwrap_or_else(|| {
+        let requested_room = params.as_ref().and_then(|params| params.get("room"));
+        let active_room =
+            storage().and_then(|storage| storage.get_item(ACTIVE_ROOM_KEY).ok().flatten());
+        let room_to_reconnect = requested_room.clone().or_else(|| {
+            (!requested_solo && create_room)
+                .then_some(active_room)
+                .flatten()
+        });
+        let base = custom.unwrap_or_else(|| {
             let scheme = if location.protocol().as_deref() == Ok("https:") {
                 "wss"
             } else {
@@ -343,38 +392,216 @@ mod browser_socket {
                 .unwrap_or_else(|_| "127.0.0.1".to_owned());
             format!("{scheme}://{host}:3001/ws")
         });
-        let action = if requested_solo {
-            "solo=1".to_owned()
-        } else if create_room {
-            "create=1".to_owned()
-        } else {
-            format!("room={}", room_code.unwrap_or_default())
-        };
-        address.push(if address.contains('?') { '&' } else { '?' });
-        address.push_str(&action);
+        let reconnect_token = room_to_reconnect
+            .as_deref()
+            .and_then(|code| storage()?.get_item(&token_storage_key(code)).ok().flatten());
+        let address =
+            if let (Some(room_code), Some(token)) = (room_to_reconnect.clone(), reconnect_token) {
+                RECONNECT_ROOM.with(|room| *room.borrow_mut() = Some(room_code.clone()));
+                append_query(&base, &format!("room={room_code}&reconnect={token}"))
+            } else if requested_solo {
+                append_query(&base, "solo=1")
+            } else if create_room {
+                append_query(&base, "create=1")
+            } else if let Some(room_code) = requested_room {
+                RECONNECT_ROOM.with(|room| *room.borrow_mut() = Some(room_code.clone()));
+                append_query(&base, &format!("room={room_code}"))
+            } else {
+                return;
+            };
+        RETRY_ENABLED.with(|enabled| enabled.set(true));
+        open_socket(address, sender, outgoing);
+    }
 
+    const ACTIVE_ROOM_KEY: &str = "riverside-escape-active-room";
+
+    fn append_query(base: &str, query: &str) -> String {
+        format!(
+            "{base}{}{query}",
+            if base.contains('?') { '&' } else { '?' }
+        )
+    }
+
+    fn token_storage_key(room_code: &str) -> String {
+        format!("riverside-escape-reconnect:{room_code}")
+    }
+
+    fn storage() -> Option<Storage> {
+        web_sys::window()?.session_storage().ok().flatten()
+    }
+
+    fn server_base() -> Option<String> {
+        let window = web_sys::window()?;
+        let location = window.location();
+        let params = location
+            .search()
+            .ok()
+            .and_then(|search| web_sys::UrlSearchParams::new_with_str(&search).ok());
+        if let Some(custom) = params.as_ref().and_then(|params| params.get("server")) {
+            return Some(custom);
+        }
+        let scheme = if location.protocol().as_deref() == Ok("https:") {
+            "wss"
+        } else {
+            "ws"
+        };
+        let host = location
+            .hostname()
+            .unwrap_or_else(|_| "127.0.0.1".to_owned());
+        Some(format!("{scheme}://{host}:3001/ws"))
+    }
+
+    fn clear_room_token(room_code: &str) {
+        if let Some(storage) = storage() {
+            let _ = storage.remove_item(&token_storage_key(room_code));
+            if storage.get_item(ACTIVE_ROOM_KEY).ok().flatten().as_deref() == Some(room_code) {
+                let _ = storage.remove_item(ACTIVE_ROOM_KEY);
+            }
+        }
+    }
+
+    fn store_welcome(room_code: &str, token: Option<&str>) {
+        RECONNECT_ROOM.with(|room| *room.borrow_mut() = Some(room_code.to_owned()));
+        if let Some(storage) = storage() {
+            let _ = storage.set_item(ACTIVE_ROOM_KEY, room_code);
+            if let Some(token) = token {
+                let _ = storage.set_item(&token_storage_key(room_code), token);
+            }
+        }
+    }
+
+    fn open_socket(
+        address: String,
+        sender: mpsc::Sender<ServerMessage>,
+        outgoing: mpsc::Sender<ClientMessage>,
+    ) {
         let socket = match WebSocket::new(&address) {
             Ok(socket) => socket,
             Err(_) => {
                 error!("Could not open {address}; running in local preview mode.");
+                let _ = sender.send(ServerMessage::ConnectionLost);
+                schedule_reconnect(sender, outgoing);
                 return;
             }
         };
+        let message_sender = sender.clone();
         let callback = Closure::<dyn FnMut(MessageEvent)>::new(move |event: MessageEvent| {
             let Some(text) = event.data().as_string() else {
                 return;
             };
             match serde_json::from_str::<ServerMessage>(&text) {
                 Ok(message) => {
-                    let _ = sender.send(message);
+                    match &message {
+                        ServerMessage::Welcome {
+                            room_code,
+                            reconnect_token,
+                            ..
+                        } => store_welcome(room_code, reconnect_token.as_deref()),
+                        ServerMessage::ReconnectUnavailable => {
+                            RETRY_ENABLED.with(|enabled| enabled.set(false));
+                            RECONNECT_ROOM.with(|room| {
+                                if let Some(room_code) = room.borrow().as_deref() {
+                                    clear_room_token(room_code);
+                                }
+                            });
+                        }
+                        ServerMessage::ReconnectInUse => {
+                            RETRY_ENABLED.with(|enabled| enabled.set(false));
+                        }
+                        ServerMessage::RoomLeft => {
+                            RETRY_ENABLED.with(|enabled| enabled.set(false));
+                            RECONNECT_ROOM.with(|room| {
+                                if let Some(room_code) = room.borrow().as_deref() {
+                                    clear_room_token(room_code);
+                                }
+                            });
+                            if let Some(window) = web_sys::window() {
+                                let _ = window.location().set_href("/");
+                            }
+                        }
+                        ServerMessage::RoomFull
+                        | ServerMessage::RoomLimitReached
+                        | ServerMessage::RoomNotFound
+                        | ServerMessage::RoomSelectionRequired
+                        | ServerMessage::InvalidRoomCode
+                        | ServerMessage::SoloUnavailable => {
+                            RETRY_ENABLED.with(|enabled| enabled.set(false));
+                        }
+                        _ => {}
+                    }
+                    let _ = message_sender.send(message);
                 }
                 Err(error) => warn!("Ignoring malformed server message: {error}"),
             }
         });
+        let close_sender = sender.clone();
+        let close_outgoing = outgoing.clone();
+        let close_callback = Closure::<dyn FnMut(Event)>::new(move |_| {
+            let _ = close_sender.send(ServerMessage::ConnectionLost);
+            schedule_reconnect(close_sender.clone(), close_outgoing.clone());
+        });
+        socket.set_onclose(Some(close_callback.as_ref().unchecked_ref()));
         socket.set_onmessage(Some(callback.as_ref().unchecked_ref()));
         SOCKET.with(|current| *current.borrow_mut() = Some(socket));
         MESSAGE_CALLBACK.with(|current| *current.borrow_mut() = Some(callback));
+        SOCKET_CALLBACKS.with(|callbacks| callbacks.borrow_mut().push(close_callback));
         info!("Connecting to {address}");
+    }
+
+    fn schedule_reconnect(
+        sender: mpsc::Sender<ServerMessage>,
+        outgoing: mpsc::Sender<ClientMessage>,
+    ) {
+        if !RETRY_ENABLED.with(Cell::get)
+            || RETRY_SCHEDULED.with(|scheduled| scheduled.replace(true))
+        {
+            return;
+        }
+        let Some(window) = web_sys::window() else {
+            RETRY_SCHEDULED.with(|scheduled| scheduled.set(false));
+            return;
+        };
+        let callback = Closure::<dyn FnMut()>::new(move || {
+            RETRY_SCHEDULED.with(|scheduled| scheduled.set(false));
+            if !RETRY_ENABLED.with(Cell::get) {
+                return;
+            }
+            let room_code = RECONNECT_ROOM.with(|room| room.borrow().clone());
+            let Some(room_code) = room_code else {
+                RETRY_ENABLED.with(|enabled| enabled.set(false));
+                return;
+            };
+            let token = storage().and_then(|storage| {
+                storage
+                    .get_item(&token_storage_key(&room_code))
+                    .ok()
+                    .flatten()
+            });
+            let Some(token) = token else {
+                RETRY_ENABLED.with(|enabled| enabled.set(false));
+                return;
+            };
+            let Some(base) = server_base() else {
+                RETRY_ENABLED.with(|enabled| enabled.set(false));
+                return;
+            };
+            open_socket(
+                append_query(&base, &format!("room={room_code}&reconnect={token}")),
+                sender.clone(),
+                outgoing.clone(),
+            );
+        });
+        if window
+            .set_timeout_with_callback_and_timeout_and_arguments_0(
+                callback.as_ref().unchecked_ref(),
+                1_000,
+            )
+            .is_ok()
+        {
+            RETRY_CALLBACKS.with(|callbacks| callbacks.borrow_mut().push(callback));
+        } else {
+            RETRY_SCHEDULED.with(|scheduled| scheduled.set(false));
+        }
     }
 
     fn document() -> Option<Document> {
@@ -422,6 +649,7 @@ mod browser_socket {
             });
         });
 
+        let leave_outgoing = outgoing.clone();
         attach_click("ready-button", move || {
             if let Some(document) = document()
                 && document
@@ -436,6 +664,11 @@ mod browser_socket {
                     let _ = outgoing.send(ClientMessage::SetReady { ready: next });
                 });
             }
+        });
+
+        attach_click("leave-room-button", move || {
+            RETRY_ENABLED.with(|enabled| enabled.set(false));
+            let _ = leave_outgoing.send(ClientMessage::LeaveRoom);
         });
     }
 
@@ -491,6 +724,8 @@ mod browser_socket {
     ) -> String {
         if network.seat == Some(seat) {
             "你已選擇此角色".to_owned()
+        } else if status.is_some_and(|status| status.reserved) {
+            "玩家短暫斷線，座位保留中".to_owned()
         } else if status.is_some_and(|status| status.connected) {
             "隊友已選擇".to_owned()
         } else {
@@ -511,20 +746,44 @@ mod browser_socket {
             );
         });
         let show_entry = !network.connected
+            && !network.connection_lost
             && (network.room_full
                 || network.room_limit_reached
                 || network.room_not_found
                 || network.room_selection_required
                 || network.invalid_room_code
                 || network.solo_unavailable);
-        set_visible(&document, "room-entry", !network.connected);
-        set_visible(&document, "room-lobby", network.connected);
+        set_visible(
+            &document,
+            "room-entry",
+            !network.connected && !network.connection_lost,
+        );
+        set_visible(
+            &document,
+            "room-lobby",
+            network.connected || network.connection_lost,
+        );
+        set_visible(&document, "leave-room-button", network.connected);
         set_visible(
             &document,
             "lobby-panel",
             !network.connected || session.phase != GamePhase::Running,
         );
-        let status = if show_entry && network.room_full {
+        let status = if network.reconnect_unavailable {
+            "重連時限已過或房間已結束；請使用新的邀請碼加入。".to_owned()
+        } else if network.reconnect_in_use {
+            "這個連線憑證仍在使用中，請確認沒有另一個分頁正在連線。".to_owned()
+        } else if network.connection_lost {
+            format!(
+                "連線中斷，正在嘗試重連。對局已暫停，座位保留 {} 秒。",
+                network.reconnect_seconds_remaining.unwrap_or(30)
+            )
+        } else if session.phase == GamePhase::Paused {
+            format!(
+                "對局已暫停，等待斷線玩家重連並重新準備（座位保留 {} 秒）。",
+                network.reconnect_seconds_remaining.unwrap_or(30)
+            )
+        } else if show_entry && network.room_full {
             "房間已滿，請建立新房間或使用其他邀請碼。".to_owned()
         } else if network.room_limit_reached {
             "目前房間數已達上限，請稍後再建立。".to_owned()
@@ -541,7 +800,11 @@ mod browser_socket {
         } else if session.phase == GamePhase::Countdown {
             format!("倒數開始：{} 秒", session.countdown_seconds.unwrap_or(5))
         } else if session.phase == GamePhase::Finished {
-            "本局已結束；準備後可開始下一局。".to_owned()
+            if session.match_result == Some(riverside_common::MatchResult::Aborted) {
+                "對局已中止；準備後可開始下一局。".to_owned()
+            } else {
+                "本局已結束；準備後可開始下一局。".to_owned()
+            }
         } else if session.ready {
             "已準備，等待另一位玩家。".to_owned()
         } else if network.seat.is_none() && !network.solo_mode {
@@ -648,6 +911,8 @@ mod browser_socket {
         set_text(&document, "seat-swap-status", &swap_status);
         let ready_label = if solo {
             "強制準備並開始"
+        } else if session.phase == GamePhase::Paused {
+            "準備並恢復對局"
         } else if session.phase == GamePhase::Countdown && session.ready {
             "取消準備並停止倒數"
         } else if session.phase == GamePhase::Finished {
@@ -661,7 +926,8 @@ mod browser_socket {
         set_disabled(
             &document,
             "ready-button",
-            !solo && (network.seat.is_none() || session.phase == GamePhase::Running),
+            !network.connected
+                || (!solo && (network.seat.is_none() || session.phase == GamePhase::Running)),
         );
         READY_STATE.with(|ready| ready.set(session.ready));
         if let Some(reason) = network.seat_choice_error {

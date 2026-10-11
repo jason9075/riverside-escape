@@ -1,0 +1,45 @@
+{
+  "generated_at": "2026-10-11T13:51:38.890Z",
+  "server": "127.0.0.1:3113",
+  "reconnect_window_seconds": 30,
+  "checks": {
+    "unexpected_disconnect_pauses_room": true,
+    "reconnect_restores_seat_and_rotates_token": true,
+    "ready_both_and_resume": true,
+    "explicit_leave_aborts_running_match": true
+  },
+  "initial_match": {
+    "room_code": "R00000",
+    "rider_seat": null,
+    "bike_health": 100,
+    "helicopter_health": 100,
+    "ammo": 6,
+    "bike": {
+      "x": 0,
+      "z": 2,
+      "yaw": 0,
+      "speed": 0,
+      "steering_angle": 0
+    }
+  },
+  "reconnect": {
+    "original_seat": "rider",
+    "old_token_rejected_after_rotation": true,
+    "duplicate_active_token_rejected": true
+  },
+  "resume": {
+    "countdown_seconds": 5,
+    "bike_health_before_and_after": [
+      100,
+      100
+    ],
+    "helicopter_health_before_and_after": [
+      100,
+      100
+    ],
+    "ammo_before_and_after": [
+      6,
+      6
+    ]
+  }
+}

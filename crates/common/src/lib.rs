@@ -124,6 +124,7 @@ impl SeatKind {
 /// Seats required to start the current prototype match. Extend this set together with `SeatKind`.
 pub const REQUIRED_SEATS: [SeatKind; 2] = [SeatKind::Rider, SeatKind::Gunner];
 pub const SEAT_SWAP_TIMEOUT_SECONDS: u8 = 15;
+pub const RECONNECT_RESERVATION_SECONDS: u8 = 30;
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -132,6 +133,7 @@ pub enum GamePhase {
     WaitingForPlayers,
     ReadyCheck,
     Countdown,
+    Paused,
     Running,
     Finished,
 }
@@ -141,6 +143,7 @@ pub enum GamePhase {
 pub enum MatchResult {
     RidersVictory,
     RidersDefeat,
+    Aborted,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -211,6 +214,7 @@ pub enum ClientMessage {
     SetReady {
         ready: bool,
     },
+    LeaveRoom,
     ForceStartSolo,
     SwitchSeat {
         seat: SeatKind,
@@ -239,6 +243,8 @@ pub enum ServerMessage {
         room_code: String,
         seat: Option<SeatKind>,
         solo_mode: bool,
+        #[serde(default)]
+        reconnect_token: Option<String>,
     },
     SeatAssigned {
         seat: SeatKind,
@@ -276,12 +282,18 @@ pub enum ServerMessage {
     RoomSelectionRequired,
     InvalidRoomCode,
     SoloUnavailable,
+    ReconnectUnavailable,
+    ReconnectInUse,
+    RoomLeft,
+    ConnectionLost,
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct SeatStatus {
     pub connected: bool,
     pub ready: bool,
+    #[serde(default)]
+    pub reserved: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
@@ -509,6 +521,8 @@ pub struct WorldSnapshot {
     /// Room members that have not selected a Rider or Gunner seat yet.
     #[serde(default)]
     pub unassigned_players: u8,
+    #[serde(default)]
+    pub reconnect_seconds_remaining: Option<u8>,
     pub countdown_seconds: Option<u8>,
     pub bike: BikeState,
     #[serde(default)]

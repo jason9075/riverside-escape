@@ -1,0 +1,24 @@
+{
+  "generated_at": "2026-10-11T14:03:24.566Z",
+  "checks": {
+    "refresh_restored_original_seat": true,
+    "refresh_rotated_token": true,
+    "rotated_token_saved_in_session_storage": true,
+    "reconnect_token_absent_from_invite_url": true,
+    "reconnect_token_sent_only_to_websocket": true,
+    "room_paused_until_ready": true,
+    "ready_both_resumed_match": true,
+    "short_drop_auto_reconnected": true
+  },
+  "browser": {
+    "room_code": "R00000",
+    "seat_after_refresh": "rider",
+    "invite_url": "http://127.0.0.1:8081/?room=R00000",
+    "websocket_handshakes": [
+      "ws://127.0.0.1:3115/ws?create=1",
+      "ws://127.0.0.1:3115/ws?room=R00000&reconnect=[REDACTED]"
+    ],
+    "console_errors": [],
+    "runtime_exceptions": []
+  }
+}
