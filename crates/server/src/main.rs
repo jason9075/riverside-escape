@@ -25,9 +25,10 @@ use riverside_common::{
     PLAYER_MISSILE_DAMAGE, PLAYER_MISSILE_HIT_RADIUS_M, PLAYER_MISSILE_LIFETIME_TICKS,
     PLAYER_MISSILE_SPEED_MPS, PlayerMissileSnapshot, REQUIRED_SEATS, ROCKET_AIM_LEAD_SECONDS,
     ROCKET_BLAST_RADIUS_M, ROCKET_FLIGHT_TICKS, ROCKET_WARNING_TICKS, RiderInput, RoadSection,
-    RocketSnapshot, RocketWarning, SIMULATION_HZ, SNAPSHOT_HZ, SeatChoiceRejection, SeatKind,
-    SeatStatus, ServerMessage, WorldPosition, WorldSnapshot, evaluate_gunner_aim,
-    first_cover_intersection, gunner_aim_origin, line_of_sight_blocked, riverside_course,
+    RocketSnapshot, RocketWarning, SEAT_SWAP_TIMEOUT_SECONDS, SIMULATION_HZ, SNAPSHOT_HZ,
+    SeatChoiceRejection, SeatKind, SeatStatus, SeatSwapCancellationReason, SeatSwapRejection,
+    ServerMessage, WorldPosition, WorldSnapshot, evaluate_gunner_aim, first_cover_intersection,
+    gunner_aim_origin, line_of_sight_blocked, riverside_course,
 };
 use tokio::{net::TcpListener, runtime::Builder, sync::broadcast};
 
@@ -65,6 +66,9 @@ struct Room {
     route_distance_m: f32,
     route_checkpoints_passed: usize,
     escape_finish_crossed: bool,
+    pending_seat_swap: Option<PendingSeatSwap>,
+    next_seat_swap_id: u64,
+    outgoing_notices: Vec<RoomNotice>,
     helicopter: Option<HelicopterSnapshot>,
     rocket: Option<RocketSnapshot>,
     helicopter_phase_deadline_tick: u64,
@@ -82,6 +86,21 @@ struct SeatSlot {
     last_fire_request_id: u64,
 }
 
+struct PendingSeatSwap {
+    request_id: u64,
+    requester_id: u64,
+    target_id: u64,
+    from_seat: SeatKind,
+    to_seat: SeatKind,
+    expires_at: Instant,
+}
+
+#[derive(Clone)]
+struct RoomNotice {
+    recipient_id: u64,
+    message: ServerMessage,
+}
+
 const MAX_ACTIVE_ROOMS: usize = 4;
 const EMPTY_ROOM_RETENTION: Duration = Duration::from_secs(10 * 60);
 
@@ -91,17 +110,20 @@ struct RoomEntry {
     solo_mode: bool,
     room: Mutex<Room>,
     snapshots: broadcast::Sender<WorldSnapshot>,
+    notices: broadcast::Sender<RoomNotice>,
 }
 
 impl RoomEntry {
     fn new(code: String, inviteable: bool, solo_mode: bool) -> Arc<Self> {
         let (snapshots, _) = broadcast::channel(8);
+        let (notices, _) = broadcast::channel(8);
         Arc::new(Self {
             code,
             inviteable,
             solo_mode,
             room: Mutex::new(Room::new()),
             snapshots,
+            notices,
         })
     }
 
@@ -279,6 +301,9 @@ impl Room {
             route_distance_m: 0.0,
             route_checkpoints_passed: 0,
             escape_finish_crossed: false,
+            pending_seat_swap: None,
+            next_seat_swap_id: 1,
+            outgoing_notices: Vec::new(),
             helicopter: None,
             rocket: None,
             helicopter_phase_deadline_tick: 0,
@@ -451,6 +476,8 @@ impl Room {
             return Err(SeatChoiceRejection::SeatOccupied);
         }
 
+        self.cancel_pending_seat_swap(SeatSwapCancellationReason::SeatChanged);
+
         let previous = self
             .seats
             .iter()
@@ -490,9 +517,183 @@ impl Room {
         Ok(())
     }
 
+    fn request_seat_swap(&mut self, player_id: u64, now: Instant) -> Result<(), SeatSwapRejection> {
+        if self.solo_player_id == Some(player_id)
+            || !matches!(
+                self.phase,
+                GamePhase::WaitingForPlayers | GamePhase::ReadyCheck | GamePhase::Finished
+            )
+        {
+            return Err(SeatSwapRejection::MatchLocked);
+        }
+        if self.pending_seat_swap.is_some() {
+            return Err(SeatSwapRejection::AlreadyPending);
+        }
+
+        let from_seat = self
+            .seats
+            .iter()
+            .find_map(|(seat, slot)| (slot.player_id == Some(player_id)).then_some(*seat))
+            .ok_or(SeatSwapRejection::SeatsNotOccupied)?;
+        let to_seat = match from_seat {
+            SeatKind::Rider => SeatKind::Gunner,
+            SeatKind::Gunner => SeatKind::Rider,
+        };
+        let target_id = self
+            .seats
+            .get(&to_seat)
+            .and_then(|slot| slot.player_id)
+            .ok_or(SeatSwapRejection::SeatsNotOccupied)?;
+        let request_id = self.next_seat_swap_id;
+        self.next_seat_swap_id = self.next_seat_swap_id.saturating_add(1);
+        let pending = PendingSeatSwap {
+            request_id,
+            requester_id: player_id,
+            target_id,
+            from_seat,
+            to_seat,
+            expires_at: now + Duration::from_secs(u64::from(SEAT_SWAP_TIMEOUT_SECONDS)),
+        };
+        self.pending_seat_swap = Some(pending);
+        for recipient_id in [player_id, target_id] {
+            self.outgoing_notices.push(RoomNotice {
+                recipient_id,
+                message: ServerMessage::SeatSwapProposed {
+                    request_id,
+                    requester_id: player_id,
+                    target_id,
+                    from_seat,
+                    to_seat,
+                    expires_in_seconds: SEAT_SWAP_TIMEOUT_SECONDS,
+                },
+            });
+        }
+        Ok(())
+    }
+
+    fn respond_to_seat_swap(
+        &mut self,
+        player_id: u64,
+        request_id: u64,
+        accept: bool,
+        now: Instant,
+    ) -> Result<(), SeatSwapRejection> {
+        let Some(pending) = self.pending_seat_swap.as_ref() else {
+            return Err(SeatSwapRejection::NoPendingRequest);
+        };
+        if pending.request_id != request_id {
+            return Err(SeatSwapRejection::NoPendingRequest);
+        }
+        if pending.target_id != player_id {
+            return Err(SeatSwapRejection::NotSwapTarget);
+        }
+        if now >= pending.expires_at {
+            self.cancel_pending_seat_swap(SeatSwapCancellationReason::Expired);
+            return Err(SeatSwapRejection::NoPendingRequest);
+        }
+        if !matches!(
+            self.phase,
+            GamePhase::WaitingForPlayers | GamePhase::ReadyCheck | GamePhase::Finished
+        ) {
+            self.cancel_pending_seat_swap(SeatSwapCancellationReason::SeatChanged);
+            return Err(SeatSwapRejection::MatchLocked);
+        }
+        if !accept {
+            self.cancel_pending_seat_swap(SeatSwapCancellationReason::Rejected);
+            return Ok(());
+        }
+
+        if self
+            .seats
+            .get(&pending.from_seat)
+            .is_none_or(|slot| slot.player_id != Some(pending.requester_id))
+            || self
+                .seats
+                .get(&pending.to_seat)
+                .is_none_or(|slot| slot.player_id != Some(pending.target_id))
+        {
+            self.cancel_pending_seat_swap(SeatSwapCancellationReason::SeatChanged);
+            return Err(SeatSwapRejection::NoPendingRequest);
+        }
+
+        let pending = self
+            .pending_seat_swap
+            .take()
+            .expect("pending swap was checked");
+        let from_slot = self
+            .seats
+            .get_mut(&pending.from_seat)
+            .expect("required seat exists");
+        from_slot.player_id = Some(pending.target_id);
+        from_slot.ready = false;
+        from_slot.last_sequence = 0;
+        from_slot.last_fire_request_id = 0;
+
+        let to_slot = self
+            .seats
+            .get_mut(&pending.to_seat)
+            .expect("required seat exists");
+        to_slot.player_id = Some(pending.requester_id);
+        to_slot.ready = false;
+        to_slot.last_sequence = 0;
+        to_slot.last_fire_request_id = 0;
+
+        self.rider_input = RiderInput::default();
+        self.last_rider_input_at = None;
+        self.last_applied_rider_sequence = 0;
+        self.gunner_input = GunnerInput::default();
+        self.last_gunner_input_at = None;
+        self.clear_gunner_lock();
+        self.countdown_deadline = None;
+        if self.phase != GamePhase::Finished {
+            self.phase = GamePhase::ReadyCheck;
+        }
+        self.outgoing_notices.extend([
+            RoomNotice {
+                recipient_id: pending.requester_id,
+                message: ServerMessage::SeatSwapCompleted {
+                    request_id,
+                    seat: pending.to_seat,
+                },
+            },
+            RoomNotice {
+                recipient_id: pending.target_id,
+                message: ServerMessage::SeatSwapCompleted {
+                    request_id,
+                    seat: pending.from_seat,
+                },
+            },
+        ]);
+        Ok(())
+    }
+
+    fn cancel_pending_seat_swap(&mut self, reason: SeatSwapCancellationReason) {
+        let Some(pending) = self.pending_seat_swap.take() else {
+            return;
+        };
+        for recipient_id in [pending.requester_id, pending.target_id] {
+            self.outgoing_notices.push(RoomNotice {
+                recipient_id,
+                message: ServerMessage::SeatSwapCancelled {
+                    request_id: pending.request_id,
+                    reason,
+                },
+            });
+        }
+    }
+
+    fn take_notices(&mut self) -> Vec<RoomNotice> {
+        std::mem::take(&mut self.outgoing_notices)
+    }
+
     fn release_member(&mut self, player_id: u64) {
         if !self.members.remove(&player_id) {
             return;
+        }
+        if self.pending_seat_swap.as_ref().is_some_and(|pending| {
+            pending.requester_id == player_id || pending.target_id == player_id
+        }) {
+            self.cancel_pending_seat_swap(SeatSwapCancellationReason::MemberLeft);
         }
         for slot in self.seats.values_mut() {
             if slot.player_id == Some(player_id) {
@@ -505,6 +706,9 @@ impl Room {
         if self.solo_player_id == Some(player_id) {
             self.solo_player_id = None;
             self.solo_seat = None;
+        }
+        for slot in self.seats.values_mut() {
+            slot.ready = false;
         }
         self.reset_match();
         self.phase = if self.all_required_connected() {
@@ -573,6 +777,13 @@ impl Room {
 
     fn advance_tick(&mut self, now: Instant) -> Option<WorldSnapshot> {
         self.tick += 1;
+        if self
+            .pending_seat_swap
+            .as_ref()
+            .is_some_and(|pending| now >= pending.expires_at)
+        {
+            self.cancel_pending_seat_swap(SeatSwapCancellationReason::Expired);
+        }
         let both_connected = self.all_required_connected();
         let both_ready = self.all_required_ready();
         let was_running = self.phase == GamePhase::Running;
@@ -584,14 +795,14 @@ impl Room {
             self.phase = GamePhase::WaitingForPlayers;
             self.countdown_deadline = None;
         } else if self.phase == GamePhase::Finished {
-            if both_ready {
+            if both_ready && self.pending_seat_swap.is_none() {
                 self.reset_match();
                 self.phase = GamePhase::Countdown;
                 self.countdown_deadline =
                     Some(now + Duration::from_secs(u64::from(COUNTDOWN_SECONDS)));
             }
         } else if self.phase != GamePhase::Running {
-            if both_ready {
+            if both_ready && self.pending_seat_swap.is_none() {
                 if self.phase != GamePhase::Countdown {
                     self.phase = GamePhase::Countdown;
                     self.countdown_deadline =
@@ -1130,16 +1341,29 @@ impl Room {
         if self.solo_player_id == Some(player_id) && self.solo_seat != Some(seat) {
             return;
         }
-        let Some(slot) = self.seats.get_mut(&seat) else {
-            return;
-        };
-        if slot.player_id != Some(player_id) {
+        if !self
+            .seats
+            .get(&seat)
+            .is_some_and(|slot| slot.player_id == Some(player_id))
+        {
             return;
         }
         match message {
             ClientMessage::SetReady { ready } => {
                 if phase != GamePhase::Running {
-                    slot.ready = ready;
+                    if !ready && phase == GamePhase::Countdown {
+                        for slot in self.seats.values_mut() {
+                            slot.ready = false;
+                        }
+                        self.countdown_deadline = None;
+                        self.phase = if self.all_required_connected() {
+                            GamePhase::ReadyCheck
+                        } else {
+                            GamePhase::WaitingForPlayers
+                        };
+                    } else if let Some(slot) = self.seats.get_mut(&seat) {
+                        slot.ready = ready;
+                    }
                 }
             }
             ClientMessage::RiderInput {
@@ -1147,6 +1371,7 @@ impl Room {
                 tick,
                 mut input,
             } if seat == SeatKind::Rider && phase == GamePhase::Running => {
+                let slot = self.seats.get_mut(&seat).expect("required seat exists");
                 if sequence > slot.last_sequence && input_tick_is_valid(self.tick, tick) {
                     input.steer = if input.steer.is_finite() {
                         input.steer.clamp(-1.0, 1.0)
@@ -1163,6 +1388,7 @@ impl Room {
                 tick,
                 mut input,
             } if seat == SeatKind::Gunner && phase == GamePhase::Running => {
+                let slot = self.seats.get_mut(&seat).expect("required seat exists");
                 if sequence > slot.last_sequence && input_tick_is_valid(self.tick, tick) {
                     input.yaw = if input.yaw.is_finite() {
                         normalize_yaw(input.yaw)
@@ -1186,6 +1412,8 @@ impl Room {
                 }
             }
             ClientMessage::ChooseSeat { .. }
+            | ClientMessage::RequestSeatSwap
+            | ClientMessage::RespondSeatSwap { .. }
             | ClientMessage::ForceStartSolo
             | ClientMessage::SwitchSeat { .. }
             | ClientMessage::RiderInput { .. }
@@ -1365,6 +1593,7 @@ async fn handle_socket(
     }
 
     let mut updates = entry.snapshots.subscribe();
+    let mut notices = entry.notices.subscribe();
     let (mut sender, mut receiver) = socket.split();
     loop {
         tokio::select! {
@@ -1375,13 +1604,17 @@ async fn handle_socket(
                         if let Ok(message) = serde_json::from_str::<ClientMessage>(text.as_str()) {
                             match message {
                                 ClientMessage::ChooseSeat { seat: requested_seat } => {
-                                    let result = match entry.room.lock() {
-                                        Ok(mut room) => room.choose_seat(player_id, requested_seat),
+                                    let (result, room_notices) = match entry.room.lock() {
+                                        Ok(mut room) => {
+                                            let result = room.choose_seat(player_id, requested_seat);
+                                            (result, room.take_notices())
+                                        }
                                         Err(error) => {
                                             eprintln!("Room state lock was poisoned: {error}");
-                                            Err(SeatChoiceRejection::MatchLocked)
+                                            (Err(SeatChoiceRejection::MatchLocked), Vec::new())
                                         }
                                     };
+                                    publish_room_notices(&entry, room_notices);
                                     let response = match result {
                                         Ok(()) => {
                                             seat = Some(requested_seat);
@@ -1396,6 +1629,53 @@ async fn handle_socket(
                                         .expect("serializing seat choice result");
                                     if sender.send(axum::extract::ws::Message::Text(encoded.into())).await.is_err() {
                                         break;
+                                    }
+                                }
+                                ClientMessage::RequestSeatSwap => {
+                                    let (result, room_notices) = match entry.room.lock() {
+                                        Ok(mut room) => {
+                                            let result = room.request_seat_swap(player_id, Instant::now());
+                                            (result, room.take_notices())
+                                        }
+                                        Err(error) => {
+                                            eprintln!("Room state lock was poisoned: {error}");
+                                            (Err(SeatSwapRejection::MatchLocked), Vec::new())
+                                        }
+                                    };
+                                    publish_room_notices(&entry, room_notices);
+                                    if let Err(reason) = result {
+                                        let response = ServerMessage::SeatSwapProposalRejected { reason };
+                                        let encoded = serde_json::to_string(&response)
+                                            .expect("serializing seat swap rejection");
+                                        if sender.send(axum::extract::ws::Message::Text(encoded.into())).await.is_err() {
+                                            break;
+                                        }
+                                    }
+                                }
+                                ClientMessage::RespondSeatSwap { request_id, accept } => {
+                                    let (result, room_notices) = match entry.room.lock() {
+                                        Ok(mut room) => {
+                                            let result = room.respond_to_seat_swap(
+                                                player_id,
+                                                request_id,
+                                                accept,
+                                                Instant::now(),
+                                            );
+                                            (result, room.take_notices())
+                                        }
+                                        Err(error) => {
+                                            eprintln!("Room state lock was poisoned: {error}");
+                                            (Err(SeatSwapRejection::MatchLocked), Vec::new())
+                                        }
+                                    };
+                                    publish_room_notices(&entry, room_notices);
+                                    if let Err(reason) = result {
+                                        let response = ServerMessage::SeatSwapProposalRejected { reason };
+                                        let encoded = serde_json::to_string(&response)
+                                            .expect("serializing seat swap rejection");
+                                        if sender.send(axum::extract::ws::Message::Text(encoded.into())).await.is_err() {
+                                            break;
+                                        }
                                     }
                                 }
                                 ClientMessage::SwitchSeat { seat: next_seat } => {
@@ -1447,9 +1727,33 @@ async fn handle_socket(
                     break;
                 }
             }
+            notice = notices.recv() => {
+                let notice = match notice {
+                    Ok(notice) => notice,
+                    Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(broadcast::error::RecvError::Closed) => break,
+                };
+                if notice.recipient_id != player_id {
+                    continue;
+                }
+                if let ServerMessage::SeatSwapCompleted { seat: next_seat, .. } = &notice.message {
+                    seat = Some(*next_seat);
+                }
+                let encoded = serde_json::to_string(&notice.message)
+                    .expect("serializing room notice");
+                if sender.send(axum::extract::ws::Message::Text(encoded.into())).await.is_err() {
+                    break;
+                }
+            }
         }
     }
     disconnect(&entry, player_id);
+}
+
+fn publish_room_notices(entry: &RoomEntry, notices: Vec<RoomNotice>) {
+    for notice in notices {
+        let _ = entry.notices.send(notice);
+    }
 }
 
 async fn send_and_close(socket: &mut axum::extract::ws::WebSocket, message: ServerMessage) {
@@ -1505,9 +1809,13 @@ fn parse_connection_request(query: Option<&str>) -> ConnectionRequest {
 }
 
 fn disconnect(entry: &RoomEntry, player_id: u64) {
-    if let Ok(mut room) = entry.room.lock() {
+    let notices = if let Ok(mut room) = entry.room.lock() {
         room.release_member(player_id);
-    }
+        room.take_notices()
+    } else {
+        Vec::new()
+    };
+    publish_room_notices(entry, notices);
 }
 
 fn tick_rooms(runtime: Res<ServerRuntime>) {
@@ -1523,13 +1831,17 @@ fn tick_rooms(runtime: Res<ServerRuntime>) {
         }
     };
     for entry in entries {
-        let snapshot = match entry.room.lock() {
-            Ok(mut room) => room.advance_tick(now),
+        let (snapshot, notices) = match entry.room.lock() {
+            Ok(mut room) => {
+                let snapshot = room.advance_tick(now);
+                (snapshot, room.take_notices())
+            }
             Err(error) => {
                 eprintln!("Room state lock was poisoned: {error}");
                 continue;
             }
         };
+        publish_room_notices(&entry, notices);
         if let Some(snapshot) = snapshot {
             let _ = entry.snapshots.send(snapshot);
         }
@@ -1549,7 +1861,8 @@ mod tests {
         HELICOPTER_STARTING_HEALTH, HelicopterPhase, MatchResult, MatchVictoryReason,
         PLAYER_MISSILE_DAMAGE, PlayerMissileSnapshot, REQUIRED_SEATS, ROCKET_BLAST_RADIUS_M,
         ROCKET_FLIGHT_TICKS, ROCKET_WARNING_TICKS, RiderInput, RocketSnapshot, RocketWarning,
-        SIMULATION_HZ, WorldPosition, gunner_aim_origin, riverside_course,
+        SIMULATION_HZ, SeatSwapCancellationReason, SeatSwapRejection, WorldPosition,
+        gunner_aim_origin, riverside_course,
     };
     use std::{
         collections::BTreeSet,
@@ -1615,6 +1928,187 @@ mod tests {
             room.choose_seat(1, super::SeatKind::Gunner),
             Err(riverside_common::SeatChoiceRejection::MatchLocked)
         );
+    }
+
+    #[test]
+    fn consensual_seat_swap_clears_ready_and_pending_request_blocks_countdown() {
+        let mut room = Room::new();
+        let now = Instant::now();
+        room.reserve_member(11, false).unwrap();
+        room.reserve_member(22, false).unwrap();
+        room.choose_seat(11, super::SeatKind::Rider).unwrap();
+        room.choose_seat(22, super::SeatKind::Gunner).unwrap();
+        room.receive(
+            11,
+            super::SeatKind::Rider,
+            ClientMessage::SetReady { ready: true },
+        );
+        room.receive(
+            22,
+            super::SeatKind::Gunner,
+            ClientMessage::SetReady { ready: true },
+        );
+        room.advance_tick(now);
+        assert_eq!(room.phase, GamePhase::Countdown);
+        assert_eq!(
+            room.request_seat_swap(11, now),
+            Err(SeatSwapRejection::MatchLocked)
+        );
+
+        // The ready control cancels Countdown before a role change can be requested.
+        room.receive(
+            11,
+            super::SeatKind::Rider,
+            ClientMessage::SetReady { ready: false },
+        );
+        room.advance_tick(now + Duration::from_millis(20));
+        assert_eq!(room.phase, GamePhase::ReadyCheck);
+        assert!(room.countdown_deadline.is_none());
+        assert!(room.seats.values().all(|slot| !slot.ready));
+
+        room.request_seat_swap(11, now + Duration::from_millis(21))
+            .unwrap();
+        let proposals = room.take_notices();
+        assert_eq!(proposals.len(), 2);
+        assert!(proposals.iter().all(|notice| matches!(
+            &notice.message,
+            riverside_common::ServerMessage::SeatSwapProposed { request_id: 1, .. }
+        )));
+
+        room.receive(
+            11,
+            super::SeatKind::Rider,
+            ClientMessage::SetReady { ready: true },
+        );
+        room.receive(
+            22,
+            super::SeatKind::Gunner,
+            ClientMessage::SetReady { ready: true },
+        );
+        room.advance_tick(now + Duration::from_millis(40));
+        assert_eq!(room.phase, GamePhase::ReadyCheck);
+        assert!(room.countdown_deadline.is_none());
+
+        room.respond_to_seat_swap(22, 1, true, now + Duration::from_millis(41))
+            .unwrap();
+        let completions = room.take_notices();
+        assert_eq!(completions.len(), 2);
+        assert!(completions.iter().any(|notice| {
+            notice.recipient_id == 11
+                && matches!(
+                    &notice.message,
+                    riverside_common::ServerMessage::SeatSwapCompleted {
+                        seat: super::SeatKind::Gunner,
+                        ..
+                    }
+                )
+        }));
+        assert!(completions.iter().any(|notice| {
+            notice.recipient_id == 22
+                && matches!(
+                    &notice.message,
+                    riverside_common::ServerMessage::SeatSwapCompleted {
+                        seat: super::SeatKind::Rider,
+                        ..
+                    }
+                )
+        }));
+        assert_eq!(room.seats[&super::SeatKind::Rider].player_id, Some(22));
+        assert_eq!(room.seats[&super::SeatKind::Gunner].player_id, Some(11));
+        assert!(room.seats.values().all(|slot| !slot.ready));
+
+        room.receive(
+            11,
+            super::SeatKind::Gunner,
+            ClientMessage::SetReady { ready: true },
+        );
+        room.receive(
+            22,
+            super::SeatKind::Rider,
+            ClientMessage::SetReady { ready: true },
+        );
+        room.advance_tick(now + Duration::from_millis(60));
+        assert_eq!(room.phase, GamePhase::Countdown);
+        room.advance_tick(now + Duration::from_secs(6));
+        assert_eq!(room.phase, GamePhase::Running);
+        assert_eq!(
+            room.request_seat_swap(11, now + Duration::from_secs(6)),
+            Err(SeatSwapRejection::MatchLocked)
+        );
+        room.phase = GamePhase::Finished;
+        room.request_seat_swap(11, now + Duration::from_secs(7))
+            .unwrap();
+        room.take_notices();
+        room.respond_to_seat_swap(22, 2, true, now + Duration::from_secs(7))
+            .unwrap();
+        assert_eq!(room.seats[&super::SeatKind::Rider].player_id, Some(11));
+        assert_eq!(room.seats[&super::SeatKind::Gunner].player_id, Some(22));
+        assert!(room.seats.values().all(|slot| !slot.ready));
+    }
+
+    #[test]
+    fn seat_swap_rejection_expiration_and_disconnect_never_exchange_seats() {
+        let mut room = Room::new();
+        let now = Instant::now();
+        room.reserve_member(11, false).unwrap();
+        room.reserve_member(22, false).unwrap();
+        room.choose_seat(11, super::SeatKind::Rider).unwrap();
+        room.choose_seat(22, super::SeatKind::Gunner).unwrap();
+
+        room.request_seat_swap(11, now).unwrap();
+        assert_eq!(room.take_notices().len(), 2);
+        assert_eq!(
+            room.respond_to_seat_swap(99, 1, true, now),
+            Err(SeatSwapRejection::NotSwapTarget)
+        );
+        room.respond_to_seat_swap(22, 1, false, now).unwrap();
+        let rejected = room.take_notices();
+        assert_eq!(rejected.len(), 2);
+        assert!(rejected.iter().all(|notice| matches!(
+            &notice.message,
+            riverside_common::ServerMessage::SeatSwapCancelled {
+                reason: SeatSwapCancellationReason::Rejected,
+                ..
+            }
+        )));
+        assert_eq!(room.seats[&super::SeatKind::Rider].player_id, Some(11));
+        assert_eq!(room.seats[&super::SeatKind::Gunner].player_id, Some(22));
+        assert_eq!(
+            room.respond_to_seat_swap(22, 1, true, now),
+            Err(SeatSwapRejection::NoPendingRequest)
+        );
+
+        room.request_seat_swap(11, now).unwrap();
+        assert_eq!(room.take_notices().len(), 2);
+        room.advance_tick(now + Duration::from_secs(16));
+        let expired = room.take_notices();
+        assert_eq!(expired.len(), 2);
+        assert!(expired.iter().all(|notice| matches!(
+            &notice.message,
+            riverside_common::ServerMessage::SeatSwapCancelled {
+                reason: SeatSwapCancellationReason::Expired,
+                ..
+            }
+        )));
+        assert_eq!(room.seats[&super::SeatKind::Rider].player_id, Some(11));
+
+        room.request_seat_swap(11, now + Duration::from_secs(17))
+            .unwrap();
+        room.take_notices();
+        room.seats.values_mut().for_each(|slot| slot.ready = true);
+        room.release_member(22);
+        let left = room.take_notices();
+        assert_eq!(left.len(), 2);
+        assert!(left.iter().all(|notice| matches!(
+            &notice.message,
+            riverside_common::ServerMessage::SeatSwapCancelled {
+                reason: SeatSwapCancellationReason::MemberLeft,
+                ..
+            }
+        )));
+        assert_eq!(room.seats[&super::SeatKind::Rider].player_id, Some(11));
+        assert_eq!(room.seats[&super::SeatKind::Gunner].player_id, None);
+        assert!(room.seats.values().all(|slot| !slot.ready));
     }
 
     #[test]

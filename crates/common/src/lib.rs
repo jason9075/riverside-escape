@@ -93,6 +93,25 @@ pub enum SeatChoiceRejection {
     SoloUsesRoleSwitch,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SeatSwapRejection {
+    SeatsNotOccupied,
+    AlreadyPending,
+    MatchLocked,
+    NoPendingRequest,
+    NotSwapTarget,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SeatSwapCancellationReason {
+    Rejected,
+    Expired,
+    MemberLeft,
+    SeatChanged,
+}
+
 impl SeatKind {
     pub const fn label(self) -> &'static str {
         match self {
@@ -104,6 +123,7 @@ impl SeatKind {
 
 /// Seats required to start the current prototype match. Extend this set together with `SeatKind`.
 pub const REQUIRED_SEATS: [SeatKind; 2] = [SeatKind::Rider, SeatKind::Gunner];
+pub const SEAT_SWAP_TIMEOUT_SECONDS: u8 = 15;
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -183,6 +203,11 @@ pub enum ClientMessage {
     ChooseSeat {
         seat: SeatKind,
     },
+    RequestSeatSwap,
+    RespondSeatSwap {
+        request_id: u64,
+        accept: bool,
+    },
     SetReady {
         ready: bool,
     },
@@ -221,6 +246,25 @@ pub enum ServerMessage {
     SeatChoiceRejected {
         seat: SeatKind,
         reason: SeatChoiceRejection,
+    },
+    SeatSwapProposed {
+        request_id: u64,
+        requester_id: u64,
+        target_id: u64,
+        from_seat: SeatKind,
+        to_seat: SeatKind,
+        expires_in_seconds: u8,
+    },
+    SeatSwapProposalRejected {
+        reason: SeatSwapRejection,
+    },
+    SeatSwapCancelled {
+        request_id: u64,
+        reason: SeatSwapCancellationReason,
+    },
+    SeatSwapCompleted {
+        request_id: u64,
+        seat: SeatKind,
     },
     SeatChanged {
         seat: SeatKind,

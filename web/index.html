@@ -201,6 +201,28 @@
         letter-spacing: 0.12em;
       }
 
+      #seat-swap-controls {
+        margin-top: 14px;
+        padding: 16px;
+        border: 1px solid rgb(223 241 221 / 20%);
+        border-radius: 14px;
+        background: rgb(3 15 12 / 28%);
+      }
+
+      #seat-swap-status {
+        margin: 0 0 10px;
+        color: #d6e5d5;
+      }
+
+      #seat-swap-response {
+        display: flex;
+        gap: 10px;
+      }
+
+      #seat-swap-response button {
+        flex: 1;
+      }
+
       #ready-button {
         width: 100%;
         margin-top: 22px;
@@ -269,6 +291,14 @@
             <span>第一人稱後座視角。轉動瞄準、鎖定直升機並發射飛彈。</span>
             <small id="gunner-status">空席，可選擇</small>
           </button>
+        </div>
+        <div id="seat-swap-controls" hidden>
+          <p id="seat-swap-status" role="status" aria-live="polite">對局開始前或結束後可提出角色交換。</p>
+          <button id="request-seat-swap" class="secondary" type="button">提出交換角色</button>
+          <div id="seat-swap-response" hidden>
+            <button id="accept-seat-swap" type="button">接受交換</button>
+            <button id="reject-seat-swap" class="secondary" type="button">拒絕</button>
+          </div>
         </div>
         <p id="solo-mode" class="helper" hidden>開發用單人模式：R 強制開始，V 切換角色。</p>
         <button id="ready-button" type="button">準備開始</button>

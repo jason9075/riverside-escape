@@ -95,6 +95,7 @@ async function launchBrowser({ port, url, profile }) {
     cdp,
     seat: null,
     welcome: null,
+    seatSwapProposals: [],
     latest: null,
     byTick: new Map(),
     exceptions: [],
@@ -127,6 +128,8 @@ async function launchBrowser({ port, url, profile }) {
       }
       if (message.type === 'seat_assigned') client.seat = message.payload.seat;
       if (message.type === 'seat_changed') client.seat = message.payload.seat;
+      if (message.type === 'seat_swap_proposed') client.seatSwapProposals.push(message.payload);
+      if (message.type === 'seat_swap_completed') client.seat = message.payload.seat;
       if (message.type === 'snapshot') {
         client.latest = message.payload;
         client.byTick.set(message.payload.tick, message.payload);
@@ -386,6 +389,8 @@ function matchingEvent(rider, gunner, type, predicate = () => true) {
     }
     const joinUrl = `http://127.0.0.1:8080/?${serverUrl}&room=${firstPlayer.welcome.room_code}`;
     const secondPlayer = await launchBrowser({ port: 9233, url: joinUrl, profile: path.join(tempRoot, 'second-player') });
+    rider = firstPlayer;
+    gunner = secondPlayer;
     await chooseSeat(firstPlayer, 'rider');
     await chooseSeat(secondPlayer, 'gunner');
     const firstRoleLabel = await waitFor(async () => firstPlayer.cdp.command('Runtime.evaluate', {
@@ -396,8 +401,31 @@ function matchingEvent(rider, gunner, type, predicate = () => true) {
     if (!firstRoleLabel?.includes('你已選擇')) {
       throw new Error(`The first member did not see their selected role: ${firstRoleLabel}`);
     }
-    rider = firstPlayer;
-    gunner = secondPlayer;
+    await firstPlayer.cdp.command('Runtime.evaluate', {
+      expression: 'document.getElementById("request-seat-swap")?.click()',
+    });
+    const seatSwap = await waitFor(
+      () => firstPlayer.seatSwapProposals.find((proposal) => proposal.requester_id === firstPlayer.welcome.player_id),
+      'visible role swap proposal',
+    );
+    await waitFor(async () => secondPlayer.cdp.command('Runtime.evaluate', {
+      expression: 'document.getElementById("seat-swap-response")?.hidden === false',
+      returnByValue: true,
+    }).then((result) => result.result?.value), 'recipient accept control');
+    await secondPlayer.cdp.command('Runtime.evaluate', {
+      expression: 'document.getElementById("accept-seat-swap")?.click()',
+    });
+    await waitFor(
+      () => firstPlayer.seat === 'gunner' && secondPlayer.seat === 'rider',
+      'browser-confirmed mutual seat swap',
+    );
+    report.seat_swap = {
+      request_id: seatSwap.request_id,
+      requester_new_seat: firstPlayer.seat,
+      target_new_seat: secondPlayer.seat,
+    };
+    rider = secondPlayer;
+    gunner = firstPlayer;
     dualRider = rider;
     dualGunner = gunner;
     report.dual_welcome = { rider: rider.welcome, gunner: gunner.welcome };

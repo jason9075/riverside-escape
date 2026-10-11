@@ -90,10 +90,18 @@
 
 - 一般雙人連線改為明確建立房間或以 `R` 邀請碼加入；不帶建立／加入參數時回報需要選擇房間。建立後 Lobby 顯示房間碼、可複製邀請網址及 Rider／Gunner 角色卡，房間成員先以未選角狀態加入。
 - Server 最多保留 4 個公開房間，各房間獨立模擬、輸入權限與快照廣播；沒有成員的空房在 10 分鐘後清除。每房最多兩名成員，未選角者也計入上限。Solo 開發房維持獨立 `D` 代碼空間，不占公開房間額度。
-- 任一成員都可原子選擇空席；以反向加入順序及同時搶同席的測試確認不依房主／加入順序指定角色，佔席不會被搶走。未選角不可 Ready；Ready 可取消，取消倒數會回到 ReadyCheck。
+- 任一成員都可原子選擇空席；以反向加入順序及同時搶同席的測試確認不依房主／加入順序指定角色，佔席不會被搶走。未選角不可 Ready；Ready 可取消，取消 Countdown 會回到 ReadyCheck 並清除雙方 Ready。
 - 遠端 WebSocket 整合報告 [`room-smoke-report.json`](verification/p5/room-smoke-report.json) 建立 `R00000` 至 `R00003` 四房，確認未選角 Ready 無效、第一位選 Gunner／第二位選 Rider、併發搶 Rider 僅一人成功、第五房被拒、房間成員上限兩人，以及 A 房進入倒數時 B 房仍在 ReadyCheck 且 Tick 持續獨立增加。
 - P3 雙 WASM／固定 100 ms RTT 回歸在本批 UI 與房間連線調整後通過：建立／邀請碼加入、角色卡選角、三發擊落、雙端相同戰鬥事件、重新 Ready、Solo R／V 都正常；報告見 [`P3 smoke report`](verification/p3/smoke-report.json)。
-- 遠端 Rust workspace 對本批 Server／Client 程式通過 46 項測試（Client 4、common 10、reconciliation 6、Server 26）、格式檢查、workspace Clippy、WASM target check、Server build 與 Trunk release build。之後新增的整合工具另通過 `node --check`，並由上述 WebSocket smoke 實際執行。本批刻意只交付公開房間與初次選角；雙方同意交換、Ready／倒數生命週期的完整競態語意、暫停重連與 P6 網路矩陣仍待後續切片完成。
+- 遠端 Rust workspace 對房間／選角第一批通過 46 項測試（Client 4、common 10、reconciliation 6、Server 26）、格式檢查、workspace Clippy、WASM target check、Server build 與 Trunk release build；WebSocket smoke 見 [`P5 房間驗證`](verification/p5/README.md)。
+
+## P5 第二批：同意換座與倒數取消
+
+- 兩個座位都有人時，任一玩家可提出帶房間內遞增 Request ID、15 秒牆鐘期限的交換；只有指定隊友可回覆。Server 在單一 Room 鎖內驗證階段、座位歸屬與期限，接受時原子對調兩座並清 Ready、序號、按住輸入和 Gunner lock。倒數／遊戲中拒絕換座，Finished 可為下一局交換。
+- 待回覆交換會阻止倒數。拒絕、逾時及任一方離開都向雙方取消；重複或過期回覆不改變角色。頁面在符合階段時顯示「提出交換」，接收方可接受／拒絕，狀態提示清楚說明交換後需要重新 Ready。
+- Countdown 中任一玩家取消 Ready 時，Server 立即清除雙方 Ready 並回 ReadyCheck；斷線也清兩席 Ready。重新準備會重新開始完整五秒倒數。Solo 的 R／V 路徑維持不變。
+- Server 測試涵蓋倒數前不能交換、待處理請求阻擋倒數、接受／拒絕／錯誤回覆／重複回覆／逾時／離開、Ready 清除、Running 拒絕及 Finished 交換。最新 WebSocket 報告也確認拒絕後不換座、重複回覆忽略、接受後雙方換座、Ready 取消後重新倒數，以及房間隔離／四房上限。Workspace 通過 49 項測試（Client 4、common 10、reconciliation 6、Server 29）、格式檢查、Clippy 與 WASM target check；Trunk release build 與固定 100 ms RTT 的雙 WASM P3 regression 通過，瀏覽器實際操作角色卡上的提出／接受交換並完成戰鬥、重賽與 Solo 回歸，無 JS／console error。報告見 [`P3 smoke`](verification/p3/README.md)。
+- 暫停、30 秒席位保留與 Token 重連尚未交付；P6 網路矩陣與瀏覽器完整驗收仍待後續批次。
 
 ## 遠端開發與驗證環境
 

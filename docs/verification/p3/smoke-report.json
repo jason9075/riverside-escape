@@ -3,50 +3,176 @@
   "one_way_delay_ms": 50,
   "lock_attempts": [
     {
-      "adjustment_count": 24,
+      "adjustment_count": 33,
       "final_adjustments": [
         {
-          "tick": 1224,
+          "tick": 1446,
           "desired": {
-            "yaw": -0.4188437420759037,
-            "pitch": 0.3713520921906263
+            "yaw": -0.13069600478724297,
+            "pitch": 0.3679172952332519
           },
           "current": {
-            "yaw": -0.41999999999999993,
+            "yaw": -0.21199999999999974,
+            "pitch": 0.368
+          },
+          "error": {
+            "yaw": 0.08130399521275677,
+            "pitch": -0.00008270476674809846
+          },
+          "mouse_delta": {
+            "x": 20,
+            "y": 0
+          },
+          "lock_progress_ticks": 12
+        },
+        {
+          "tick": 1467,
+          "desired": {
+            "yaw": -0.06164699384925321,
+            "pitch": 0.37365920806776304
+          },
+          "current": {
+            "yaw": -0.13199999999999967,
+            "pitch": 0.368
+          },
+          "error": {
+            "yaw": 0.07035300615074647,
+            "pitch": 0.005659208067763044
+          },
+          "mouse_delta": {
+            "x": 18,
+            "y": -1
+          },
+          "lock_progress_ticks": 27
+        },
+        {
+          "tick": 1485,
+          "desired": {
+            "yaw": -0.025859144406343404,
+            "pitch": 0.38270779397084137
+          },
+          "current": {
+            "yaw": -0.0600000000000005,
             "pitch": 0.372
           },
           "error": {
-            "yaw": 0.0011562579240962378,
-            "pitch": -0.0006479078093736823
+            "yaw": 0.03414085559365709,
+            "pitch": 0.010707793970841373
           },
           "mouse_delta": {
-            "x": 0,
-            "y": 0
+            "x": 9,
+            "y": -3
           },
-          "lock_progress_ticks": 44
+          "lock_progress_ticks": 36
         },
         {
-          "tick": 1233,
+          "tick": 1494,
           "desired": {
-            "yaw": -0.4188437358730859,
-            "pitch": 0.37135208747927784
+            "yaw": -0.015151655851623147,
+            "pitch": 0.3880775459907512
           },
           "current": {
-            "yaw": -0.41999999999999993,
-            "pitch": 0.372
+            "yaw": -0.02400000000000091,
+            "pitch": 0.384
           },
           "error": {
-            "yaw": 0.0011562641269140528,
-            "pitch": -0.0006479125207221603
+            "yaw": 0.008848344148377763,
+            "pitch": 0.004077545990751219
+          },
+          "mouse_delta": {
+            "x": 2,
+            "y": -1
+          },
+          "lock_progress_ticks": 54
+        },
+        {
+          "tick": 1515,
+          "desired": {
+            "yaw": -0.0030895141486553257,
+            "pitch": 0.40056625327629247
+          },
+          "current": {
+            "yaw": -0.016000000000000014,
+            "pitch": 0.388
+          },
+          "error": {
+            "yaw": 0.012910485851344689,
+            "pitch": 0.01256625327629246
+          },
+          "mouse_delta": {
+            "x": 3,
+            "y": -3
+          },
+          "lock_progress_ticks": 72
+        },
+        {
+          "tick": 1530,
+          "desired": {
+            "yaw": -0.0006950002332573035,
+            "pitch": 0.40802000949642375
+          },
+          "current": {
+            "yaw": -0.0039999999999995595,
+            "pitch": 0.4
+          },
+          "error": {
+            "yaw": 0.003304999766742256,
+            "pitch": 0.00802000949642373
+          },
+          "mouse_delta": {
+            "x": 1,
+            "y": -2
+          },
+          "lock_progress_ticks": 90
+        },
+        {
+          "tick": 1551,
+          "desired": {
+            "yaw": -0.00004902877072865408,
+            "pitch": 0.41546830206071017
+          },
+          "current": {
+            "yaw": 0,
+            "pitch": 0.40800000000000003
+          },
+          "error": {
+            "yaw": -0.00004902877072865408,
+            "pitch": 0.007468302060710141
           },
           "mouse_delta": {
             "x": 0,
-            "y": 0
+            "y": -2
           },
-          "lock_progress_ticks": 53
+          "lock_progress_ticks": 108
         },
         {
-          "tick": 1239,
+          "tick": 1569,
+          "desired": {
+            "yaw": -0.000003224656946798632,
+            "pitch": 0.4186206185521575
+          },
+          "current": {
+            "yaw": 0,
+            "pitch": 0.41600000000000004
+          },
+          "error": {
+            "yaw": -0.000003224656946798632,
+            "pitch": 0.00262061855215745
+          },
+          "mouse_delta": {
+            "x": 0,
+            "y": -1
+          },
+          "lock_progress_ticks": 120
+        }
+      ],
+      "locked_tick": 1584
+    },
+    {
+      "adjustment_count": 25,
+      "final_adjustments": [
+        {
+          "tick": 1851,
           "desired": {
             "yaw": -0.4188437482787215,
             "pitch": 0.3713520969019748
@@ -63,285 +189,159 @@
             "x": 0,
             "y": 0
           },
-          "lock_progress_ticks": 59
+          "lock_progress_ticks": 52
         },
         {
-          "tick": 1248,
+          "tick": 1857,
           "desired": {
-            "yaw": -0.37858747711761254,
-            "pitch": 0.37042702897876817
+            "yaw": -0.4188437482787215,
+            "pitch": 0.3713520969019748
           },
           "current": {
             "yaw": -0.41999999999999993,
             "pitch": 0.372
           },
           "error": {
-            "yaw": 0.04141252288238739,
-            "pitch": -0.0015729710212318282
+            "yaw": 0.001156251721278423,
+            "pitch": -0.0006479030980252043
           },
           "mouse_delta": {
-            "x": 10,
+            "x": 0,
             "y": 0
           },
-          "lock_progress_ticks": 74
+          "lock_progress_ticks": 58
         },
         {
-          "tick": 1260,
+          "tick": 1866,
           "desired": {
-            "yaw": -0.3113022706884365,
-            "pitch": 0.36912597142324743
+            "yaw": -0.38339967079244985,
+            "pitch": 0.3801267978619819
           },
           "current": {
-            "yaw": -0.379999999999999,
+            "yaw": -0.41999999999999993,
             "pitch": 0.372
           },
           "error": {
-            "yaw": 0.06869772931156248,
-            "pitch": -0.002874028576752563
+            "yaw": 0.036600329207550075,
+            "pitch": 0.008126797861981894
           },
           "mouse_delta": {
-            "x": 17,
-            "y": 1
+            "x": 9,
+            "y": -2
           },
-          "lock_progress_ticks": 83
-        },
-        {
-          "tick": 1269,
-          "desired": {
-            "yaw": -0.2625089780658225,
-            "pitch": 0.36809928776923306
-          },
-          "current": {
-            "yaw": -0.3119999999999994,
-            "pitch": 0.368
-          },
-          "error": {
-            "yaw": 0.04949102193417687,
-            "pitch": 0.00009928776923306959
-          },
-          "mouse_delta": {
-            "x": 12,
-            "y": 0
-          },
-          "lock_progress_ticks": 92
-        },
-        {
-          "tick": 1278,
-          "desired": {
-            "yaw": -0.2162831765582105,
-            "pitch": 0.3674286938098294
-          },
-          "current": {
-            "yaw": -0.26399999999999935,
-            "pitch": 0.368
-          },
-          "error": {
-            "yaw": 0.04771682344178885,
-            "pitch": -0.0005713061901705951
-          },
-          "mouse_delta": {
-            "x": 12,
-            "y": 0
-          },
-          "lock_progress_ticks": 110
-        },
-        {
-          "tick": 1299,
-          "desired": {
-            "yaw": -0.12282156385162146,
-            "pitch": 0.36869087271862955
-          },
-          "current": {
-            "yaw": -0.21600000000000108,
-            "pitch": 0.368
-          },
-          "error": {
-            "yaw": 0.09317843614837962,
-            "pitch": 0.0006908727186295538
-          },
-          "mouse_delta": {
-            "x": 23,
-            "y": 0
-          },
-          "lock_progress_ticks": 120
-        }
-      ],
-      "locked_tick": 1317
-    },
-    {
-      "adjustment_count": 53,
-      "final_adjustments": [
-        {
-          "tick": 1848,
-          "desired": {
-            "yaw": 0,
-            "pitch": 0.44340115473884734
-          },
-          "current": {
-            "yaw": 0,
-            "pitch": 0.444
-          },
-          "error": {
-            "yaw": 0,
-            "pitch": -0.0005988452611526696
-          },
-          "mouse_delta": {
-            "x": 0,
-            "y": 0
-          },
-          "lock_progress_ticks": 68
-        },
-        {
-          "tick": 1854,
-          "desired": {
-            "yaw": 0,
-            "pitch": 0.44340115473884734
-          },
-          "current": {
-            "yaw": 0,
-            "pitch": 0.444
-          },
-          "error": {
-            "yaw": 0,
-            "pitch": -0.0005988452611526696
-          },
-          "mouse_delta": {
-            "x": 0,
-            "y": 0
-          },
-          "lock_progress_ticks": 74
-        },
-        {
-          "tick": 1860,
-          "desired": {
-            "yaw": 0,
-            "pitch": 0.44340115473884734
-          },
-          "current": {
-            "yaw": 0,
-            "pitch": 0.444
-          },
-          "error": {
-            "yaw": 0,
-            "pitch": -0.0005988452611526696
-          },
-          "mouse_delta": {
-            "x": 0,
-            "y": 0
-          },
-          "lock_progress_ticks": 83
-        },
-        {
-          "tick": 1869,
-          "desired": {
-            "yaw": 0,
-            "pitch": 0.44340115473884734
-          },
-          "current": {
-            "yaw": 0,
-            "pitch": 0.444
-          },
-          "error": {
-            "yaw": 0,
-            "pitch": -0.0005988452611526696
-          },
-          "mouse_delta": {
-            "x": 0,
-            "y": 0
-          },
-          "lock_progress_ticks": 89
-        },
-        {
-          "tick": 1875,
-          "desired": {
-            "yaw": 0,
-            "pitch": 0.44340115473884734
-          },
-          "current": {
-            "yaw": 0,
-            "pitch": 0.444
-          },
-          "error": {
-            "yaw": 0,
-            "pitch": -0.0005988452611526696
-          },
-          "mouse_delta": {
-            "x": 0,
-            "y": 0
-          },
-          "lock_progress_ticks": 95
+          "lock_progress_ticks": 76
         },
         {
           "tick": 1884,
           "desired": {
-            "yaw": 0,
-            "pitch": 0.44340115473884734
+            "yaw": -0.2888769709736536,
+            "pitch": 0.40112111878725065
           },
           "current": {
-            "yaw": 0,
-            "pitch": 0.444
+            "yaw": -0.38400000000000034,
+            "pitch": 0.38
           },
           "error": {
-            "yaw": 0,
-            "pitch": -0.0005988452611526696
+            "yaw": 0.09512302902634673,
+            "pitch": 0.021121118787250648
           },
           "mouse_delta": {
-            "x": 0,
-            "y": 0
+            "x": 24,
+            "y": -5
           },
-          "lock_progress_ticks": 104
+          "lock_progress_ticks": 85
         },
         {
-          "tick": 1890,
+          "tick": 1893,
           "desired": {
-            "yaw": 0,
-            "pitch": 0.44340115473884734
+            "yaw": -0.23243403453203193,
+            "pitch": 0.4119783257404216
           },
           "current": {
-            "yaw": 0,
-            "pitch": 0.444
+            "yaw": -0.28800000000000026,
+            "pitch": 0.4
           },
           "error": {
-            "yaw": 0,
-            "pitch": -0.0005988452611526696
+            "yaw": 0.055565965467968326,
+            "pitch": 0.01197832574042157
           },
           "mouse_delta": {
-            "x": 0,
-            "y": 0
+            "x": 14,
+            "y": -3
           },
-          "lock_progress_ticks": 110
+          "lock_progress_ticks": 94
         },
         {
-          "tick": 1899,
+          "tick": 1902,
           "desired": {
-            "yaw": 0,
-            "pitch": 0.44340115473884734
+            "yaw": -0.1687264184463757,
+            "pitch": 0.42271874826487343
           },
           "current": {
-            "yaw": 0,
-            "pitch": 0.444
+            "yaw": -0.23199999999999932,
+            "pitch": 0.41200000000000003
           },
           "error": {
-            "yaw": 0,
-            "pitch": -0.0005988452611526696
+            "yaw": 0.06327358155362361,
+            "pitch": 0.010718748264873401
           },
           "mouse_delta": {
-            "x": 0,
-            "y": 0
+            "x": 16,
+            "y": -3
           },
-          "lock_progress_ticks": 119
+          "lock_progress_ticks": 106
+        },
+        {
+          "tick": 1914,
+          "desired": {
+            "yaw": -0.07098917025429152,
+            "pitch": 0.4360720680108936
+          },
+          "current": {
+            "yaw": -0.16799999999999926,
+            "pitch": 0.424
+          },
+          "error": {
+            "yaw": 0.09701082974570774,
+            "pitch": 0.01207206801089361
+          },
+          "mouse_delta": {
+            "x": 24,
+            "y": -3
+          },
+          "lock_progress_ticks": 111
+        },
+        {
+          "tick": 1926,
+          "desired": {
+            "yaw": 0,
+            "pitch": 0.4434011547388472
+          },
+          "current": {
+            "yaw": -0.07199999999999918,
+            "pitch": 0.436
+          },
+          "error": {
+            "yaw": 0.07199999999999918,
+            "pitch": 0.0074011547388472265
+          },
+          "mouse_delta": {
+            "x": 18,
+            "y": -2
+          },
+          "lock_progress_ticks": 118
         }
       ],
-      "locked_tick": 1905
+      "locked_tick": 1935
     },
     {
       "adjustment_count": 14,
       "final_adjustments": [
         {
-          "tick": 1983,
+          "tick": 2010,
           "desired": {
             "yaw": 0,
-            "pitch": 0.44340115473884734
+            "pitch": 0.4434011547388472
           },
           "current": {
             "yaw": 0,
@@ -349,19 +349,19 @@
           },
           "error": {
             "yaw": 0,
-            "pitch": -0.0005988452611526696
+            "pitch": -0.0005988452611527806
           },
           "mouse_delta": {
             "x": 0,
             "y": 0
           },
-          "lock_progress_ticks": 64
+          "lock_progress_ticks": 66
         },
         {
-          "tick": 1989,
+          "tick": 2016,
           "desired": {
             "yaw": 0,
-            "pitch": 0.44340115473884734
+            "pitch": 0.4434011547388472
           },
           "current": {
             "yaw": 0,
@@ -369,19 +369,19 @@
           },
           "error": {
             "yaw": 0,
-            "pitch": -0.0005988452611526696
+            "pitch": -0.0005988452611527806
           },
           "mouse_delta": {
             "x": 0,
             "y": 0
           },
-          "lock_progress_ticks": 73
+          "lock_progress_ticks": 72
         },
         {
-          "tick": 1998,
+          "tick": 2022,
           "desired": {
             "yaw": 0,
-            "pitch": 0.44340115473884734
+            "pitch": 0.4434011547388472
           },
           "current": {
             "yaw": 0,
@@ -389,19 +389,19 @@
           },
           "error": {
             "yaw": 0,
-            "pitch": -0.0005988452611526696
+            "pitch": -0.0005988452611527806
           },
           "mouse_delta": {
             "x": 0,
             "y": 0
           },
-          "lock_progress_ticks": 79
+          "lock_progress_ticks": 78
         },
         {
-          "tick": 2004,
+          "tick": 2031,
           "desired": {
             "yaw": 0,
-            "pitch": 0.44340115473884734
+            "pitch": 0.4434011547388472
           },
           "current": {
             "yaw": 0,
@@ -409,19 +409,19 @@
           },
           "error": {
             "yaw": 0,
-            "pitch": -0.0005988452611526696
+            "pitch": -0.0005988452611527806
           },
           "mouse_delta": {
             "x": 0,
             "y": 0
           },
-          "lock_progress_ticks": 85
+          "lock_progress_ticks": 87
         },
         {
-          "tick": 2013,
+          "tick": 2037,
           "desired": {
             "yaw": 0,
-            "pitch": 0.44340115473884734
+            "pitch": 0.4434011547388472
           },
           "current": {
             "yaw": 0,
@@ -429,19 +429,19 @@
           },
           "error": {
             "yaw": 0,
-            "pitch": -0.0005988452611526696
+            "pitch": -0.0005988452611527806
           },
           "mouse_delta": {
             "x": 0,
             "y": 0
           },
-          "lock_progress_ticks": 94
+          "lock_progress_ticks": 93
         },
         {
-          "tick": 2019,
+          "tick": 2046,
           "desired": {
             "yaw": 0,
-            "pitch": 0.44340115473884734
+            "pitch": 0.4434011547388472
           },
           "current": {
             "yaw": 0,
@@ -449,19 +449,19 @@
           },
           "error": {
             "yaw": 0,
-            "pitch": -0.0005988452611526696
+            "pitch": -0.0005988452611527806
           },
           "mouse_delta": {
             "x": 0,
             "y": 0
           },
-          "lock_progress_ticks": 100
+          "lock_progress_ticks": 102
         },
         {
-          "tick": 2025,
+          "tick": 2052,
           "desired": {
             "yaw": 0,
-            "pitch": 0.44340115473884734
+            "pitch": 0.4434011547388472
           },
           "current": {
             "yaw": 0,
@@ -469,19 +469,19 @@
           },
           "error": {
             "yaw": 0,
-            "pitch": -0.0005988452611526696
+            "pitch": -0.0005988452611527806
           },
           "mouse_delta": {
             "x": 0,
             "y": 0
           },
-          "lock_progress_ticks": 109
+          "lock_progress_ticks": 108
         },
         {
-          "tick": 2034,
+          "tick": 2061,
           "desired": {
             "yaw": 0,
-            "pitch": 0.44340115473884734
+            "pitch": 0.4434011547388472
           },
           "current": {
             "yaw": 0,
@@ -489,27 +489,27 @@
           },
           "error": {
             "yaw": 0,
-            "pitch": -0.0005988452611526696
+            "pitch": -0.0005988452611527806
           },
           "mouse_delta": {
             "x": 0,
             "y": 0
           },
-          "lock_progress_ticks": 115
+          "lock_progress_ticks": 117
         }
       ],
-      "locked_tick": 2040
+      "locked_tick": 2067
     }
   ],
   "shots": [
     {
       "index": 1,
       "request_id": 1,
-      "attack_id": 2,
-      "fire_event_id": 4,
-      "fire_tick": 1334,
-      "impact_tick": 1352,
-      "impact_event_id": 5,
+      "attack_id": 3,
+      "fire_event_id": 5,
+      "fire_tick": 1601,
+      "impact_tick": 1627,
+      "impact_event_id": 6,
       "helicopter_health": 66,
       "ammo_remaining": 5,
       "same_tick_event_on_both_clients": true
@@ -517,11 +517,11 @@
     {
       "index": 2,
       "request_id": 2,
-      "attack_id": 5,
-      "fire_event_id": 10,
-      "fire_tick": 1919,
-      "impact_tick": 1938,
-      "impact_event_id": 11,
+      "attack_id": 4,
+      "fire_event_id": 9,
+      "fire_tick": 1944,
+      "impact_tick": 1963,
+      "impact_event_id": 10,
       "helicopter_health": 32,
       "ammo_remaining": 4,
       "same_tick_event_on_both_clients": true
@@ -530,25 +530,30 @@
       "index": 3,
       "request_id": 3,
       "attack_id": 6,
-      "fire_event_id": 13,
-      "fire_tick": 2053,
-      "impact_tick": 2074,
-      "impact_event_id": 16,
+      "fire_event_id": 12,
+      "fire_tick": 2077,
+      "impact_tick": 2096,
+      "impact_event_id": 13,
       "helicopter_health": 0,
       "ammo_remaining": 3,
       "same_tick_event_on_both_clients": true
     }
   ],
+  "seat_swap": {
+    "request_id": 1,
+    "requester_new_seat": "gunner",
+    "target_new_seat": "rider"
+  },
   "dual_welcome": {
     "rider": {
-      "player_id": 6,
-      "room_code": "R00002",
+      "player_id": 4,
+      "room_code": "R00001",
       "seat": null,
       "solo_mode": false
     },
     "gunner": {
-      "player_id": 7,
-      "room_code": "R00002",
+      "player_id": 3,
+      "room_code": "R00001",
       "seat": null,
       "solo_mode": false
     }
@@ -557,13 +562,13 @@
     "Rider",
     "Gunner"
   ],
-  "displayed_invite_url": "http://127.0.0.1:8080/?room=R00002",
+  "displayed_invite_url": "http://127.0.0.1:8080/?room=R00001",
   "dual_running_tick": {
-    "rider": 774,
-    "gunner": 774
+    "rider": 924,
+    "gunner": 924
   },
   "pointer_lock": {
-    "href": "http://127.0.0.1:8080/?server=ws%3A%2F%2F127.0.0.1%3A3102%2Fws&room=R00002",
+    "href": "http://127.0.0.1:8080/?server=ws%3A%2F%2F127.0.0.1%3A3102%2Fws&create=1",
     "focused": true,
     "pointer_locked": true,
     "canvas": {
@@ -581,26 +586,26 @@
   },
   "rejected_attempts": [],
   "first_server_lock": {
-    "tick": 1317,
+    "tick": 1584,
     "progress_ticks": 120,
     "locked": true,
     "can_fire": true,
     "target": {
-      "x": 1.0362679,
-      "y": 8.194301,
-      "z": 2.4876475
+      "x": 0.00003811276,
+      "y": 8.000008,
+      "z": -12.923942
     }
   },
   "finished": {
-    "tick": 2076,
+    "tick": 2097,
     "rider_result": "riders_victory",
     "gunner_result": "riders_victory",
-    "rider_bike_health": 75,
-    "gunner_bike_health": 75,
+    "rider_bike_health": 100,
+    "gunner_bike_health": 100,
     "rider_helicopter_health": 0,
     "gunner_helicopter_health": 0,
-    "event_id": 17,
-    "event_tick": 2074,
+    "event_id": 14,
+    "event_tick": 2096,
     "both_ready_cleared": true
   },
   "rematch_countdown": {
@@ -608,16 +613,16 @@
     "gunner": 5
   },
   "rematch_running": {
-    "rider_tick": 2574,
-    "gunner_tick": 2574,
+    "rider_tick": 2577,
+    "gunner_tick": 2577,
     "bike_health": 100,
     "helicopter_health": 100,
     "ammo": 6
   },
   "solo": {
     "welcome": {
-      "player_id": 8,
-      "room_code": "D00001",
+      "player_id": 5,
+      "room_code": "D00000",
       "seat": "rider",
       "solo_mode": true
     },

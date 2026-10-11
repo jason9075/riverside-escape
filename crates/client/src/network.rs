@@ -1,7 +1,10 @@
 use std::sync::{Mutex, mpsc};
 
 use bevy::prelude::*;
-use riverside_common::{ClientMessage, GamePhase, SeatChoiceRejection, SeatKind, ServerMessage};
+use riverside_common::{
+    ClientMessage, GamePhase, SeatChoiceRejection, SeatKind, SeatSwapCancellationReason,
+    SeatSwapRejection, ServerMessage,
+};
 
 use crate::GameSession;
 
@@ -25,7 +28,20 @@ pub struct NetworkClient {
     pub room_code: Option<String>,
     pub seat: Option<SeatKind>,
     pub seat_choice_error: Option<SeatChoiceRejection>,
+    pub pending_seat_swap: Option<PendingSeatSwap>,
+    pub seat_swap_status: Option<String>,
     pub unassigned_players: u8,
+}
+
+#[derive(Clone)]
+#[allow(dead_code)] // Some fields are consumed only by the WASM Lobby renderer.
+pub struct PendingSeatSwap {
+    pub request_id: u64,
+    pub requester_id: u64,
+    pub target_id: u64,
+    pub from_seat: SeatKind,
+    pub to_seat: SeatKind,
+    pub expires_in_seconds: u8,
 }
 
 impl Default for NetworkClient {
@@ -49,6 +65,8 @@ impl Default for NetworkClient {
             room_code: None,
             seat: None,
             seat_choice_error: None,
+            pending_seat_swap: None,
+            seat_swap_status: None,
             unassigned_players: 0,
         }
     }
@@ -57,6 +75,25 @@ impl Default for NetworkClient {
 impl NetworkClient {
     pub fn send(&self, message: ClientMessage) {
         let _ = self.outgoing_tx.send(message);
+    }
+}
+
+fn seat_swap_rejection_text(reason: SeatSwapRejection) -> &'static str {
+    match reason {
+        SeatSwapRejection::SeatsNotOccupied => "兩個角色都有人選擇後才能交換。",
+        SeatSwapRejection::AlreadyPending => "已有交換請求等待回覆。",
+        SeatSwapRejection::MatchLocked => "倒數或對局中不能交換角色。",
+        SeatSwapRejection::NoPendingRequest => "交換請求已失效。",
+        SeatSwapRejection::NotSwapTarget => "只有收到請求的隊友可以回覆。",
+    }
+}
+
+fn seat_swap_cancellation_text(reason: SeatSwapCancellationReason) -> &'static str {
+    match reason {
+        SeatSwapCancellationReason::Rejected => "隊友拒絕了角色交換。",
+        SeatSwapCancellationReason::Expired => "角色交換請求已逾時。",
+        SeatSwapCancellationReason::MemberLeft => "玩家離開，角色交換已取消。",
+        SeatSwapCancellationReason::SeatChanged => "角色狀態已變更，交換請求已取消。",
     }
 }
 
@@ -106,12 +143,63 @@ pub fn pump_network(mut network: ResMut<NetworkClient>, mut session: ResMut<Game
             ServerMessage::SeatAssigned { seat } => {
                 network.seat = Some(seat);
                 network.seat_choice_error = None;
+                network.pending_seat_swap = None;
+                network.seat_swap_status = None;
                 session.change_seat(seat);
                 session.rider_input = Default::default();
                 session.gunner_input.aim_held = false;
             }
             ServerMessage::SeatChoiceRejected { seat: _, reason } => {
                 network.seat_choice_error = Some(reason);
+            }
+            ServerMessage::SeatSwapProposed {
+                request_id,
+                requester_id,
+                target_id,
+                from_seat,
+                to_seat,
+                expires_in_seconds,
+            } => {
+                network.pending_seat_swap = Some(PendingSeatSwap {
+                    request_id,
+                    requester_id,
+                    target_id,
+                    from_seat,
+                    to_seat,
+                    expires_in_seconds,
+                });
+                network.seat_swap_status = Some(if network.player_id == Some(requester_id) {
+                    format!("已提出交換：對方接受後會改選 {}。", to_seat.label())
+                } else {
+                    format!("隊友提出交換：接受後你會改選 {}。", from_seat.label())
+                });
+            }
+            ServerMessage::SeatSwapProposalRejected { reason } => {
+                network.seat_swap_status = Some(seat_swap_rejection_text(reason).to_owned());
+            }
+            ServerMessage::SeatSwapCancelled { request_id, reason } => {
+                if network
+                    .pending_seat_swap
+                    .as_ref()
+                    .is_some_and(|pending| pending.request_id == request_id)
+                {
+                    network.pending_seat_swap = None;
+                    network.seat_swap_status = Some(seat_swap_cancellation_text(reason).to_owned());
+                }
+            }
+            ServerMessage::SeatSwapCompleted {
+                request_id: _,
+                seat,
+            } => {
+                network.seat = Some(seat);
+                network.pending_seat_swap = None;
+                network.seat_swap_status = Some("角色已交換，請重新準備。".to_owned());
+                session.change_seat(seat);
+                session.rider_input = Default::default();
+                session.gunner_input.aim_held = false;
+                session.cursor_captured = false;
+                session.pending_rider_inputs.clear();
+                session.prediction_initialized = false;
             }
             ServerMessage::SeatChanged { seat } => {
                 network.seat = Some(seat);
@@ -190,11 +278,16 @@ pub fn flush_outgoing(network: Res<NetworkClient>) {
 
 #[cfg(target_arch = "wasm32")]
 mod browser_socket {
-    use std::{cell::{Cell, RefCell}, sync::mpsc};
+    use std::{
+        cell::{Cell, RefCell},
+        sync::mpsc,
+    };
 
-    use bevy::prelude::*;
     use crate::GameSession;
-    use riverside_common::{ClientMessage, GamePhase, SeatChoiceRejection, SeatKind, ServerMessage};
+    use bevy::prelude::*;
+    use riverside_common::{
+        ClientMessage, GamePhase, SeatChoiceRejection, SeatKind, ServerMessage,
+    };
     use wasm_bindgen::{JsCast, closure::Closure};
     use web_sys::{Document, Event, HtmlInputElement, MessageEvent, WebSocket};
 
@@ -205,6 +298,7 @@ mod browser_socket {
         static MESSAGE_CALLBACK: RefCell<Option<Closure<dyn FnMut(MessageEvent)>>> = const { RefCell::new(None) };
         static UI_CALLBACKS: RefCell<Vec<Closure<dyn FnMut(Event)>>> = const { RefCell::new(Vec::new()) };
         static READY_STATE: Cell<bool> = const { Cell::new(false) };
+        static PENDING_SWAP_ID: Cell<Option<u64>> = const { Cell::new(None) };
     }
 
     pub(super) fn connect(
@@ -290,11 +384,42 @@ mod browser_socket {
     fn install_lobby_handlers(outgoing: mpsc::Sender<ClientMessage>) {
         let rider_outgoing = outgoing.clone();
         attach_click("choose-rider", move || {
-            let _ = rider_outgoing.send(ClientMessage::ChooseSeat { seat: SeatKind::Rider });
+            let _ = rider_outgoing.send(ClientMessage::ChooseSeat {
+                seat: SeatKind::Rider,
+            });
         });
         let gunner_outgoing = outgoing.clone();
         attach_click("choose-gunner", move || {
-            let _ = gunner_outgoing.send(ClientMessage::ChooseSeat { seat: SeatKind::Gunner });
+            let _ = gunner_outgoing.send(ClientMessage::ChooseSeat {
+                seat: SeatKind::Gunner,
+            });
+        });
+
+        let swap_outgoing = outgoing.clone();
+        attach_click("request-seat-swap", move || {
+            let _ = swap_outgoing.send(ClientMessage::RequestSeatSwap);
+        });
+        let accept_outgoing = outgoing.clone();
+        attach_click("accept-seat-swap", move || {
+            PENDING_SWAP_ID.with(|pending| {
+                if let Some(request_id) = pending.get() {
+                    let _ = accept_outgoing.send(ClientMessage::RespondSeatSwap {
+                        request_id,
+                        accept: true,
+                    });
+                }
+            });
+        });
+        let reject_outgoing = outgoing.clone();
+        attach_click("reject-seat-swap", move || {
+            PENDING_SWAP_ID.with(|pending| {
+                if let Some(request_id) = pending.get() {
+                    let _ = reject_outgoing.send(ClientMessage::RespondSeatSwap {
+                        request_id,
+                        accept: false,
+                    });
+                }
+            });
         });
 
         attach_click("ready-button", move || {
@@ -377,6 +502,14 @@ mod browser_socket {
         let Some(document) = document() else {
             return;
         };
+        PENDING_SWAP_ID.with(|pending| {
+            pending.set(
+                network
+                    .pending_seat_swap
+                    .as_ref()
+                    .map(|swap| swap.request_id),
+            );
+        });
         let show_entry = !network.connected
             && (network.room_full
                 || network.room_limit_reached
@@ -449,8 +582,18 @@ mod browser_socket {
         );
         let rider = session.seats.get(&SeatKind::Rider);
         let gunner = session.seats.get(&SeatKind::Gunner);
-        set_text(&document, "rider-status", &role_label(network, SeatKind::Rider, rider));
-        set_text(&document, "gunner-status", &role_label(network, SeatKind::Gunner, gunner));
+        let both_seats_filled = rider.is_some_and(|status| status.connected)
+            && gunner.is_some_and(|status| status.connected);
+        set_text(
+            &document,
+            "rider-status",
+            &role_label(network, SeatKind::Rider, rider),
+        );
+        set_text(
+            &document,
+            "gunner-status",
+            &role_label(network, SeatKind::Gunner, gunner),
+        );
         let may_choose = matches!(
             session.phase,
             GamePhase::WaitingForPlayers | GamePhase::ReadyCheck | GamePhase::Finished
@@ -458,15 +601,51 @@ mod browser_socket {
         set_disabled(
             &document,
             "choose-rider",
-            solo || !may_choose || network.seat == Some(SeatKind::Rider)
-                || rider.is_some_and(|status| status.connected && network.seat != Some(SeatKind::Rider)),
+            solo || !may_choose
+                || network.seat == Some(SeatKind::Rider)
+                || rider.is_some_and(|status| {
+                    status.connected && network.seat != Some(SeatKind::Rider)
+                }),
         );
         set_disabled(
             &document,
             "choose-gunner",
-            solo || !may_choose || network.seat == Some(SeatKind::Gunner)
-                || gunner.is_some_and(|status| status.connected && network.seat != Some(SeatKind::Gunner)),
+            solo || !may_choose
+                || network.seat == Some(SeatKind::Gunner)
+                || gunner.is_some_and(|status| {
+                    status.connected && network.seat != Some(SeatKind::Gunner)
+                }),
         );
+        let may_swap = !solo
+            && both_seats_filled
+            && matches!(
+                session.phase,
+                GamePhase::WaitingForPlayers | GamePhase::ReadyCheck | GamePhase::Finished
+            );
+        set_visible(&document, "seat-swap-controls", may_swap);
+        set_visible(
+            &document,
+            "request-seat-swap",
+            may_swap && network.pending_seat_swap.is_none(),
+        );
+        let is_swap_target = network
+            .pending_seat_swap
+            .as_ref()
+            .is_some_and(|swap| network.player_id == Some(swap.target_id));
+        set_visible(&document, "seat-swap-response", may_swap && is_swap_target);
+        let swap_status = network.seat_swap_status.clone().unwrap_or_else(|| {
+            network.pending_seat_swap.as_ref().map_or_else(
+                || "對局開始前或結束後可提出角色交換。".to_owned(),
+                |swap| {
+                    if network.player_id == Some(swap.requester_id) {
+                        format!("等待隊友回覆，{} 秒後逾時。", swap.expires_in_seconds)
+                    } else {
+                        format!("接受後你會改選 {}。", swap.from_seat.label())
+                    }
+                },
+            )
+        });
+        set_text(&document, "seat-swap-status", &swap_status);
         let ready_label = if solo {
             "強制準備並開始"
         } else if session.phase == GamePhase::Countdown && session.ready {
@@ -493,6 +672,9 @@ mod browser_socket {
                 SeatChoiceRejection::SoloUsesRoleSwitch => "單人測試請按 V 切換角色。",
             };
             set_text(&document, "lobby-status", text);
+        }
+        if network.seat_swap_status.is_some() {
+            set_text(&document, "lobby-status", &swap_status);
         }
     }
 

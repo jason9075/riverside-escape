@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-11T13:12:31.699Z",
+  "generated_at": "2026-10-11T13:26:03.338Z",
   "server": "127.0.0.1:3112",
   "max_active_rooms": 4,
   "room_creations": [
@@ -35,12 +35,20 @@
   ],
   "checks": {
     "unassigned_ready_ignored": true,
+    "swap_rejected_without_exchange": true,
+    "duplicate_swap_reply_ignored": true,
+    "consensual_swap": {
+      "request_id": 2,
+      "host_new_seat": "rider",
+      "guest_new_seat": "gunner"
+    },
+    "ready_cancellation": true,
     "room_isolation": true,
     "room_ticks": {
-      "room_a_start": 12,
-      "room_a_countdown": 15,
+      "room_a_start": 21,
+      "room_a_countdown": 30,
       "room_b_initial": 6,
-      "room_b_while_a_counted_down": 21
+      "room_b_while_a_counted_down": 30
     },
     "room_capacity_two": true,
     "four_room_limit": true

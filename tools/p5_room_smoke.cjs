@@ -120,6 +120,77 @@ async function main() {
     await waitSnapshot(firstHost, seatsConnected, 'room A seats assigned');
     report.role_choices.push({ room: roomA, join_order: ['Gunner', 'Rider'] });
 
+    send(firstHost, 'request_seat_swap');
+    const rejectedSwap = await waitMessage(
+      firstHost,
+      'seat_swap_proposed',
+      (payload) => payload.requester_id === firstWelcome.payload.player_id,
+      'first seat swap proposal',
+    );
+    await waitMessage(
+      firstGuest,
+      'seat_swap_proposed',
+      (payload) => payload.request_id === rejectedSwap.payload.request_id,
+      'teammate seat swap proposal',
+    );
+    send(firstGuest, 'respond_seat_swap', {
+      request_id: rejectedSwap.payload.request_id,
+      accept: false,
+    });
+    await waitMessage(
+      firstHost,
+      'seat_swap_cancelled',
+      (payload) => payload.request_id === rejectedSwap.payload.request_id
+        && payload.reason === 'rejected',
+      'seat swap rejection broadcast',
+    );
+    send(firstGuest, 'respond_seat_swap', {
+      request_id: rejectedSwap.payload.request_id,
+      accept: true,
+    });
+    await waitMessage(
+      firstGuest,
+      'seat_swap_proposal_rejected',
+      (payload) => payload.reason === 'no_pending_request',
+      'duplicate response rejected',
+    );
+
+    send(firstHost, 'request_seat_swap');
+    const acceptedSwap = await waitMessage(
+      firstHost,
+      'seat_swap_proposed',
+      (payload) => payload.request_id > rejectedSwap.payload.request_id,
+      'second seat swap proposal',
+    );
+    send(firstGuest, 'respond_seat_swap', {
+      request_id: acceptedSwap.payload.request_id,
+      accept: true,
+    });
+    const [hostSwap, guestSwap] = await Promise.all([
+      waitMessage(
+        firstHost,
+        'seat_swap_completed',
+        (payload) => payload.request_id === acceptedSwap.payload.request_id,
+        'requester seat swap completion',
+      ),
+      waitMessage(
+        firstGuest,
+        'seat_swap_completed',
+        (payload) => payload.request_id === acceptedSwap.payload.request_id,
+        'target seat swap completion',
+      ),
+    ]);
+    if (hostSwap.payload.seat !== 'rider' || guestSwap.payload.seat !== 'gunner') {
+      throw new Error('Consensual seat swap did not atomically exchange both roles');
+    }
+    report.checks.swap_rejected_without_exchange = true;
+    report.checks.duplicate_swap_reply_ignored = true;
+    report.checks.consensual_swap = {
+      request_id: acceptedSwap.payload.request_id,
+      host_new_seat: hostSwap.payload.seat,
+      guest_new_seat: guestSwap.payload.seat,
+    };
+
     const secondHost = await openClient(`${address}?create=1`);
     clients.push(secondHost);
     const secondWelcome = await waitMessage(secondHost, 'welcome');
@@ -157,10 +228,29 @@ async function main() {
     const roomBInitial = secondHost.latest;
     send(firstHost, 'set_ready', { ready: true });
     send(firstGuest, 'set_ready', { ready: true });
+    await waitSnapshot(
+      firstHost,
+      (snapshot) => snapshot?.phase === 'countdown',
+      'room A first countdown',
+    );
+    send(firstHost, 'set_ready', { ready: false });
+    const readyCancelled = await waitSnapshot(
+      firstHost,
+      (snapshot) => snapshot?.phase === 'ready_check'
+        && !snapshot.seats.rider.ready
+        && !snapshot.seats.gunner.ready,
+      'ready cancellation returns to ReadyCheck',
+    );
+    if (readyCancelled.countdown_seconds !== null) {
+      throw new Error('Cancelling Ready kept the countdown active');
+    }
+    report.checks.ready_cancellation = true;
+    send(firstHost, 'set_ready', { ready: true });
+    send(firstGuest, 'set_ready', { ready: true });
     const roomACountdown = await waitSnapshot(
       firstHost,
       (snapshot) => snapshot?.phase === 'countdown',
-      'room A countdown',
+      'room A restarted countdown',
     );
     await sleep(250);
     const roomBCurrent = secondHost.latest;
