@@ -1,6 +1,7 @@
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
+const { reportJson } = require('./report_json.cjs');
 const os = require('node:os');
 const WebSocket = require('ws');
 
@@ -345,15 +346,15 @@ async function main() {
     report.check.bounded_rss_drift_pass = report.check.bounded_rss_drift_mb === null
       || report.check.bounded_rss_drift_mb < 64;
     report.metrics_samples = report.samples;
-    fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
-    console.log(JSON.stringify(report, null, 2));
+    fs.writeFileSync(reportPath, `${reportJson(report)}\n`);
+    console.log(reportJson(report));
     if (Object.entries(report.check).some(([key, value]) => key !== 'bounded_rss_drift_mb' && value === false)) {
       process.exitCode = 1;
     }
   } catch (error) {
     report.error = error.stack || String(error);
     report.server_errors = serverErrors;
-    fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
+    fs.writeFileSync(reportPath, `${reportJson(report)}\n`);
     console.error(report.error);
     process.exitCode = 1;
   } finally {

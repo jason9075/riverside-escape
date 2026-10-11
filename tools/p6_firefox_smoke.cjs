@@ -2,6 +2,7 @@ const { spawn } = require('node:child_process');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
+const { reportJson } = require('./report_json.cjs');
 const WebSocket = require('ws');
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -219,8 +220,8 @@ async function main() {
     if (!standaloneWebGl.supported) {
       report.unverified_reason = 'Firefox headless returned null from a standalone WebGL2 canvas; game interaction cannot run in this environment.';
       fs.mkdirSync(path.dirname(reportPath), { recursive: true });
-      fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
-      console.log(JSON.stringify(report, null, 2));
+      fs.writeFileSync(reportPath, `${reportJson(report)}\n`);
+      console.log(reportJson(report));
       return;
     }
 
@@ -339,14 +340,14 @@ async function main() {
     report.screenshot_sha256 = crypto.createHash('sha256')
       .update(Buffer.from(screenshot, 'base64')).digest('hex');
     fs.mkdirSync(path.dirname(reportPath), { recursive: true });
-    fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
-    console.log(JSON.stringify(report, null, 2));
+    fs.writeFileSync(reportPath, `${reportJson(report)}\n`);
+    console.log(reportJson(report));
     if (Object.values(report.checks).some((passed) => !passed)) process.exitCode = 1;
   } catch (error) {
     report.error = error.stack || String(error);
     report.browser_console_errors = consoleErrors;
     fs.mkdirSync(path.dirname(reportPath), { recursive: true });
-    fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
+    fs.writeFileSync(reportPath, `${reportJson(report)}\n`);
     console.error(report.error);
     process.exitCode = 1;
   } finally {

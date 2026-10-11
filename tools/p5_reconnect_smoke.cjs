@@ -1,6 +1,7 @@
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
+const { reportJson } = require('./report_json.cjs');
 const WebSocket = require('ws');
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -215,8 +216,8 @@ async function main() {
       'explicit leave abort result',
     );
     report.checks.explicit_leave_aborts_running_match = aborted.match_result === 'aborted';
-    fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
-    console.log(JSON.stringify(report, null, 2));
+    fs.writeFileSync(reportPath, `${reportJson(report)}\n`);
+    console.log(reportJson(report));
   } finally {
     for (const client of clients) await close(client);
     server.kill('SIGTERM');

@@ -2,6 +2,7 @@ const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { reportJson } = require('./report_json.cjs');
 const WebSocket = require('ws');
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -272,13 +273,13 @@ async function dispose(client) {
       throw new Error('Front fork did not reach the matching steering direction');
     }
     if (!report.webgl2) throw new Error('The client did not initialize WebGL2');
-    fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
-    console.log(JSON.stringify(report, null, 2));
+    fs.writeFileSync(reportPath, `${reportJson(report)}\n`);
+    console.log(reportJson(report));
   } catch (error) {
     report.error = error.stack || String(error);
     report.live_state = client?.latest;
-    fs.writeFileSync(path.join(artifactDir, 'ad-steering-wasm-failure.json'), `${JSON.stringify(report, null, 2)}\n`);
-    console.error(JSON.stringify(report, null, 2));
+    fs.writeFileSync(path.join(artifactDir, 'ad-steering-wasm-failure.json'), `${reportJson(report)}\n`);
+    console.error(reportJson(report));
     process.exitCode = 1;
   } finally {
     await dispose(client);

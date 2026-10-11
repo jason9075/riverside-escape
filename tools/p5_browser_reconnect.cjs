@@ -2,6 +2,7 @@ const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { reportJson } = require('./report_json.cjs');
 const WebSocket = require('ws');
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -344,8 +345,8 @@ async function main() {
     await click(browser, 'leave-room-button');
     await waitMessage(gunner, 'snapshot', (snapshot) => snapshot.phase === 'finished'
       && snapshot.match_result === 'aborted');
-    fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
-    console.log(JSON.stringify(report, null, 2));
+    fs.writeFileSync(reportPath, `${reportJson(report)}\n`);
+    console.log(reportJson(report));
   } finally {
     if (gunner?.socket?.readyState === WebSocket.OPEN) gunner.socket.close();
     await closeBrowser(browser);

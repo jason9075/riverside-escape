@@ -658,14 +658,14 @@
       "room_code": "R00000",
       "seat": null,
       "solo_mode": false,
-      "reconnect_token": "73a4cb70672f473524eb63534571645687cf4bf4a1c9e37f70d4c8558ba59050"
+      "reconnect_token": "[REDACTED]"
     },
     "gunner": {
       "player_id": 2,
       "room_code": "R00000",
       "seat": null,
       "solo_mode": false,
-      "reconnect_token": "b7f3d7aafcb0ecfdb0949e9e1e162d90e93d58117d2f515d44b89ba7ba01c65e"
+      "reconnect_token": "[REDACTED]"
     }
   },
   "join_order": [

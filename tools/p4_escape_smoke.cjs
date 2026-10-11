@@ -2,6 +2,7 @@ const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { reportJson } = require('./report_json.cjs');
 const WebSocket = require('ws');
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -640,8 +641,8 @@ function sharedEvent(rider, gunner, type, predicate) {
       expression: `(() => { const canvas = document.querySelector('canvas'); const gl = canvas?.getContext('webgl2'); return { width: canvas?.width, height: canvas?.height, webgl2: !!gl, version: gl?.getParameter(gl.VERSION) }; })()`,
       returnByValue: true,
     }).then((value) => value.result?.value);
-    fs.writeFileSync(path.join(artifactDir, 'escape-100ms.json'), `${JSON.stringify(report, null, 2)}\n`);
-    console.log(JSON.stringify(report, null, 2));
+    fs.writeFileSync(path.join(artifactDir, 'escape-100ms.json'), `${reportJson(report)}\n`);
+    console.log(reportJson(report));
   } catch (error) {
     report.error = error.stack || String(error);
     report.live_state = {
@@ -654,9 +655,9 @@ function sharedEvent(rider, gunner, type, predicate) {
         solo: solo?.exceptions,
       },
     };
-    fs.writeFileSync(path.join(artifactDir, 'escape-100ms-failure.json'), `${JSON.stringify(report, null, 2)}\n`);
+    fs.writeFileSync(path.join(artifactDir, 'escape-100ms-failure.json'), `${reportJson(report)}\n`);
     console.error(error.stack || String(error));
-    console.error(JSON.stringify(report, null, 2));
+    console.error(reportJson(report));
     process.exitCode = 1;
   } finally {
     await dispose(rider);

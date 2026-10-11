@@ -2,6 +2,7 @@ const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { reportJson } = require('./report_json.cjs');
 const WebSocket = require('ws');
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -768,8 +769,8 @@ function matchingEvent(rider, gunner, type, predicate = () => true) {
         && report.solo.seat_after_switch === 'gunner',
       no_browser_errors: Object.values(report.client_errors).flat().length === 0,
     };
-    fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
-    console.log(JSON.stringify(report, null, 2));
+    fs.writeFileSync(reportPath, `${reportJson(report)}\n`);
+    console.log(reportJson(report));
     if (Object.values(report.checks).some((passed) => !passed)) process.exitCode = 1;
   } catch (error) {
     report.runtime_errors = {
@@ -786,9 +787,9 @@ function matchingEvent(rider, gunner, type, predicate = () => true) {
         mouse: { x: gunner.mouseDeltaX, y: gunner.mouseDeltaY } },
       solo: solo && { latest: solo.latest, canvas: await pageDebug(solo).catch(String) },
     };
-    fs.writeFileSync('/tmp/riverside_p3_failure.json', `${JSON.stringify(report, null, 2)}\n`);
+    fs.writeFileSync('/tmp/riverside_p3_failure.json', `${reportJson(report)}\n`);
     console.error(error.stack || String(error));
-    console.error(JSON.stringify(report, null, 2));
+    console.error(reportJson(report));
     process.exitCode = 1;
   } finally {
     await mouseUp(rider, 'left').catch(() => {});
