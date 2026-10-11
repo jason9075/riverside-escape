@@ -23,7 +23,15 @@
 - 提交範圍需檢查，包含該功能所需的程式、資產、測試與說明；保留 build 輸出及遠端快取的既有排除規則。未完成或尚未驗證的其他工作不混入已完成提交。
 - 階段回報列出 commit hash、功能摘要與驗證結果；工程狀態文件記錄功能是否已提交。
 - PM 檢查時 repo 尚無任何 commit。工程師先盤點已完成的 P0／P1／P2 與進行中的 P3，建立可驗證的初始基線；無法合理分離時不捏造歷史提交，說明實際基線範圍，再依本規則提交後續功能。
-- 本機為 Git 主要來源，遠端仍是執行副本，沿用不傳 `.git/` 的單向同步方式。
+- 本機為主要開發與提交來源，遠端為執行副本。兩邊各自維護 Git metadata，不透過 rsync 傳 `.git/`；後續 GitHub 同步方式見下方最新規則。
+
+### GitHub 與遠端 Git 連線（使用者授權）
+
+- 使用者要求設定 SSH remote 並讓遠端執行機連此 repo。兩邊 `origin` 均為 `git@github.com:jason9075/riverside-escape.git`，已實測 SSH `ls-remote`／fetch 成功。
+- GitHub 原先為空 repository；首次已將本機已提交的 `master` 非強制推送至 `e350853`。遠端既有目錄已初始化 Git、fetch 相同歷史並建立 `master`／`origin/master` tracking，初始化保留所有來源與尚未提交修改。
+- 各功能本機驗證、commit 後推送 `origin master`，再由遠端 fetch／`pull --ff-only` 更新已提交版本。先檢查遠端工作樹，正在測試的未提交來源與證據不可被覆蓋；遇到差異先盤點整合，不以 hard reset、force push 或無條件刪除解決。
+- 開發中的來源仍可明確單向 rsync 至遠端以供驗證，持續排除 `.git/`、`target/`、`dist/`。驗證證據回收本機並提交後，再確認遠端來源及文件對齊。
+- Git 操作由工程師統一管理；本次連線設定由 PM 完成並通知工程師接手。遠端初始化查得既有非追蹤重複檔案，先辨識來源，不納入功能提交或自動刪除。
 
 ### Session 聯繫方式
 

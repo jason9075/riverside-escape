@@ -1,7 +1,7 @@
 # 工程狀態
 
 - 更新日期：2026-10-11
-- 目前階段：P0–P4 原型工程驗證完成；P4 三批功能、測試與雙瀏覽器整合驗證均已完成，待 PM 產品驗收
+- 目前階段：P0–P4 原型工程驗證完成；已依實玩回報修正 A／D 方向並完成 WASM／Server 驗證，接續依最新產品決策推進 P5／P6
 - 範圍：P0／P1／P2 是已驗收基線；P3 依 PM 最新決策完成，參數仍屬可調原型配置
 
 ## Git 基線與提交狀態
@@ -9,7 +9,7 @@
 - 本機 `master` 起初沒有任何 commit，因此無法可信地重建 P0、P1、P2 各自的歷史提交；沒有捏造過往提交。
 - 初始基線 commit 以已驗證的遠端 P2 checkout 為程式碼來源，納入 P0／P1／P2 原型、可重現驗證紀錄／截圖、最新 `PRODUCT_PLAN.md` 與本狀態文件，作為一個可檢視的目前狀態快照；未驗證中的 P3 程式不納入基線。
 - 初始基線 commit：`5997679` (`chore: establish validated P0-P2 project baseline`)。
-- 後續以可獨立驗證的功能切片提交；每項功能通過必要驗證並建立 commit 後，才標為已交付。Git 主 checkout 是本機，遠端工作副本不含 `.git/`。
+- 後續以可獨立驗證的功能切片提交；每項功能通過必要驗證並建立 commit 後，才標為已交付。本機與遠端目前都是同一 Git repository 的 checkout；兩端各自維護 `.git/`，不透過 rsync 複製 Git metadata。本機 commit 後推送 `origin master`，遠端以 fetch／fast-forward 更新；更新前先保護遠端未提交工作。
 
 ## 已交付
 
@@ -76,6 +76,16 @@
 - 最終 Workspace 通過 39 項測試（Client 3、common 9、reconciliation 6、Server 21）、`cargo fmt --all -- --check`、WASM target check、workspace Clippy、Server build 與 Trunk build。固定 RTT 測試未注入 jitter 或 packet loss，SwiftShader 也不代表實體 GPU、最終平衡或正式玩家體驗。
 - 本批程式、測試、報告與畫面證據獨立提交；commit hash 由 Git 歷史記錄。
 
+## P4 操控方向修正：A 左轉、D 右轉
+
+- 實玩回報指 A／D 從 Rider chase view 看來相反。根因在座標轉換：共享 gameplay yaw 增加代表向車體右側轉，車體前向為 `(sin(yaw), -cos(yaw))`；Bevy 對本地 `-Z` 的正 Y 旋轉方向相反。舊 Client 用正 yaw 旋轉自行車和鏡頭，畫面朝向便與 Server／共同 Kinematic 路徑不一致。
+- 保持已定義的 Rider mapping（A=`steer -1`、D=`+1`）與共用模擬方向，於 Bevy 呈現邊界以 `-yaw` 旋轉車架／chase camera，以 `-steering_angle` 旋轉前叉。Gunner 後座相機、權威瞄準方向與飛彈發射原點也使用一致的 gameplay yaw，因此車體已轉向時不會偏到鏡頭相反側。
+- 新增測試確認 A/D 輸入映射、車身前向與前叉左右呈現；Server 權威輸入在路線起點及 80 m、已轉向的直線上都確認 A 使車體朝左、D 朝右。共用瞄準測試另驗證車體轉向後 Gunner 朝後的原點與瞄準方向。
+- 遠端 WASM／WebGL2 實際按鍵測試在兩個獨立 Solo 新局按 D、A：D 權威 yaw `+0.177 rad`、相對車體右側位移 `+1.016 m`、前叉峰值 `+0.398 rad`；A 分別為 `−0.181 rad`、`−0.799 m`、`−0.428 rad`。兩次均無 JS 或 console error。報告與畫面見 [`A/D WASM 按鍵驗證`](verification/p4/ad-steering-wasm.json)。
+- 固定 100 ms RTT 的 P3 雙人 WASM regression 在 Gunner yaw 修正後重新通過：三發命中事件、雙端勝利、重玩及 Solo 換座均正常，無 Client 錯誤；最新資料見 [`P3 瀏覽器驗證`](verification/p3/README.md)。
+- 修正後 Workspace 共 42 項測試（Client 4、common 10、reconciliation 6、Server 22）；格式檢查、WASM check、workspace Clippy、Server build 與 Trunk build 通過。結果驗證方向與協定行為，不代表實體 GPU 手感或最後平衡。
+- 本修正與瀏覽器證據獨立提交；完成後按最新 [`PRODUCT_PLAN.md`](PRODUCT_PLAN.md) 繼續 P5、P6。
+
 ## 遠端開發與驗證環境
 
 | 項目 | 設定 |
@@ -83,7 +93,9 @@
 | 本機 checkout | `/home/jason9075/Projects/river-side-escape` |
 | 遠端主機 | `jason9075@10.90.0.254`（LAN；Tailscale `100.102.19.59`） |
 | 遠端專案 | `/home/jason9075/hdd/side-projects/river-side-escape` |
-| 同步方向 | 本機 checkout → 遠端專案；遠端執行 build 與測試，不回同步 `target/`、`dist/` |
+| GitHub origin | `git@github.com:jason9075/riverside-escape.git`；本機 `master` 推送提交，遠端 `fetch` 後僅 fast-forward |
+| 工作檔同步 | 開發中來源可明確 rsync 至遠端驗證；排除 `.git/`、`target/`、`dist/`，不使用刪除選項 |
+| 遠端差異 | 遠端有既存未追蹤重複來源檔；整合前先檢查並保留，不納入功能提交 |
 | 遠端 Cargo 快取 | `/home/jason9075/.cache/riverside-escape/target` |
 | 遠端日誌 | `/home/jason9075/.cache/riverside-escape/logs/` |
 | 遠端工具 | Linux 7.0.0-38-generic、AMD Ryzen 9 5950X（32 vCPU）、Rust/Cargo 1.98.1、Trunk 0.21.14、Node 18.19.1、Chromium 154.0.8037.97 |
@@ -243,6 +255,7 @@ Server 現在在每個快照附上 `last_applied_rider_sequence`。Client 依確
 - P3 已完成實作、必要驗證與功能 commit，待 PM 工程驗收；本批生命值、傷害、鎖定與武器值仍是 PM 可調原型配置，不是正式平衡結論。
 - 固定 100 ms RTT 的遠端 SwiftShader／headless 驗證通過；jitter、packet loss、實體 GPU、其他瀏覽器與完整玩家體驗仍待後續驗收。
 - P4 路線、橋下掩體與逃脫功能已完成工程驗證；正式戰鬥平衡及玩家體驗仍待 PM／玩家驗收。
+- P5 房間／選角／重連與 P6 網路／負載／瀏覽器工程驗證依最新產品決策進行中；硬體、Firefox、封包遺失等缺環境項目逐項據實記錄。
 - 控制器尚無量化轉彎測試；依研究對照先驗證問題，再決定是否調整轉向曲線、輸入漸變或視覺傾斜，不擴寫控制器。
 - 完整 Lobby、重連與正式斷線規則留待後續階段。
 
