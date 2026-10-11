@@ -45,6 +45,7 @@ fn main() {
                 game::update_camera,
                 game::update_hud,
                 network::flush_outgoing,
+                network::refresh_diagnostics,
             )
                 .chain(),
         )

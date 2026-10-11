@@ -47,6 +47,26 @@
         color: #eff4e9;
       }
 
+      #network-diagnostics {
+        position: fixed;
+        z-index: 19;
+        bottom: 12px;
+        left: 12px;
+        max-width: min(760px, calc(100vw - 24px));
+        max-height: 42vh;
+        margin: 0;
+        padding: 10px 12px;
+        overflow: auto;
+        border: 1px solid rgb(223 241 221 / 24%);
+        border-radius: 10px;
+        background: rgb(3 15 12 / 88%);
+        color: #d7efd3;
+        font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        pointer-events: none;
+      }
+
       [hidden] {
         display: none !important;
       }
@@ -265,6 +285,7 @@
   <body>
     <canvas id="game-canvas" tabindex="0"></canvas>
     <button id="leave-room-button" class="leave-room" type="button" hidden>離開房間</button>
+    <pre id="network-diagnostics" hidden aria-label="Network diagnostics"></pre>
     <main id="lobby-panel">
       <section id="room-entry" class="lobby-card">
         <p class="eyebrow">TAIPEI RIVERSIDE CO-OP</p>

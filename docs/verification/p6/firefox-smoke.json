@@ -1,0 +1,18 @@
+{
+  "generated_at": "2026-10-11T14:46:02.488Z",
+  "browser": "Firefox WebDriver BiDi",
+  "checks": {
+    "webgl2_available": false
+  },
+  "environment": {
+    "browser_version": "157.0.1",
+    "platform": "linux",
+    "user_agent": null,
+    "webgl_renderer": null,
+    "site_url": "http://127.0.0.1:8081/",
+    "injected_rtt_ms": 0,
+    "injected_jitter_per_direction_ms": 0,
+    "packet_loss": "not injected"
+  },
+  "unverified_reason": "Firefox headless returned null from a standalone WebGL2 canvas; game interaction cannot run in this environment."
+}

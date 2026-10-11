@@ -1,0 +1,2651 @@
+{
+  "generated_at": "2026-10-11T14:46:43.851Z",
+  "environment": {
+    "platform": "linux",
+    "architecture": "x64",
+    "node": "v18.19.1",
+    "hostname": "jason-ubuntu",
+    "duration_seconds": 600,
+    "rooms": 4,
+    "players": 8,
+    "client_input_rate_hz": 20,
+    "snapshot_target_hz": 20,
+    "simulation_target_hz": 60,
+    "traffic": "continuous pedal/steering/braking and gunner aim inputs; no application packet drops",
+    "proc_clock_ticks_per_second": 100
+  },
+  "samples": [
+    {
+      "elapsed_seconds": 10,
+      "tick_rate_hz": 59.776089564174335,
+      "tick_duration_us": {
+        "p50": 34,
+        "p95": 64,
+        "p99": 84
+      },
+      "snapshot_payload_bytes_per_second": 167054.06898830438,
+      "snapshot_send_rate_hz": 155.24925411000945,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 7.90234375,
+      "cpu_ticks": 21,
+      "cpu_percent_of_one_core": 1.599360255897641,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 0
+    },
+    {
+      "elapsed_seconds": 20,
+      "tick_rate_hz": 59.79402059794021,
+      "tick_duration_us": {
+        "p50": 33,
+        "p95": 62,
+        "p99": 77
+      },
+      "snapshot_payload_bytes_per_second": 183652.09565692532,
+      "snapshot_send_rate_hz": 156.77565534693898,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 8.15234375,
+      "cpu_ticks": 34,
+      "cpu_percent_of_one_core": 1.2998700129987002,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 0
+    },
+    {
+      "elapsed_seconds": 30,
+      "tick_rate_hz": 59.8,
+      "tick_duration_us": {
+        "p50": 38,
+        "p95": 64,
+        "p99": 83
+      },
+      "snapshot_payload_bytes_per_second": 194009.8766722362,
+      "snapshot_send_rate_hz": 157.67373892624312,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 8.3203125,
+      "cpu_ticks": 48,
+      "cpu_percent_of_one_core": 1.4000000000000001,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 0
+    },
+    {
+      "elapsed_seconds": 40,
+      "tick_rate_hz": 59.79402059794021,
+      "tick_duration_us": {
+        "p50": 34,
+        "p95": 63,
+        "p99": 79
+      },
+      "snapshot_payload_bytes_per_second": 192969.94774993695,
+      "snapshot_send_rate_hz": 158.00356115332647,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 8.42578125,
+      "cpu_ticks": 59,
+      "cpu_percent_of_one_core": 1.0998900109989,
+      "phase_counts": {
+        "countdown": 8
+      },
+      "rematch_cycles_started": 4
+    },
+    {
+      "elapsed_seconds": 50,
+      "tick_rate_hz": 59.79402059794021,
+      "tick_duration_us": {
+        "p50": 39,
+        "p95": 64,
+        "p99": 84
+      },
+      "snapshot_payload_bytes_per_second": 191836.824566818,
+      "snapshot_send_rate_hz": 158.21151448484517,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 8.5078125,
+      "cpu_ticks": 72,
+      "cpu_percent_of_one_core": 1.2998700129987002,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 4
+    },
+    {
+      "elapsed_seconds": 60,
+      "tick_rate_hz": 59.78206538038588,
+      "tick_duration_us": {
+        "p50": 43,
+        "p95": 65,
+        "p99": 85
+      },
+      "snapshot_payload_bytes_per_second": 196186.35169542846,
+      "snapshot_send_rate_hz": 158.47857961814552,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 8.7265625,
+      "cpu_ticks": 86,
+      "cpu_percent_of_one_core": 1.3995801259622114,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 4
+    },
+    {
+      "elapsed_seconds": 70,
+      "tick_rate_hz": 59.79402059794021,
+      "tick_duration_us": {
+        "p50": 46,
+        "p95": 65,
+        "p99": 85
+      },
+      "snapshot_payload_bytes_per_second": 198461.80437185024,
+      "snapshot_send_rate_hz": 158.57223222112944,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 9.01171875,
+      "cpu_ticks": 101,
+      "cpu_percent_of_one_core": 1.4998500149985001,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 4
+    },
+    {
+      "elapsed_seconds": 80,
+      "tick_rate_hz": 59.78804239152169,
+      "tick_duration_us": {
+        "p50": 46,
+        "p95": 65,
+        "p99": 85
+      },
+      "snapshot_payload_bytes_per_second": 193783.35365773152,
+      "snapshot_send_rate_hz": 158.64108575529963,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 9.19140625,
+      "cpu_ticks": 115,
+      "cpu_percent_of_one_core": 1.3997200559888023,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 8
+    },
+    {
+      "elapsed_seconds": 90,
+      "tick_rate_hz": 59.79402059794021,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 67,
+        "p99": 87
+      },
+      "snapshot_payload_bytes_per_second": 196608.97342166078,
+      "snapshot_send_rate_hz": 158.78171120278267,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 1,
+      "rss_mb": 9.23828125,
+      "cpu_ticks": 129,
+      "cpu_percent_of_one_core": 1.3998600139986004,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 8
+    },
+    {
+      "elapsed_seconds": 100,
+      "tick_rate_hz": 59.79402059794021,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 69,
+        "p99": 87
+      },
+      "snapshot_payload_bytes_per_second": 199253.35282268608,
+      "snapshot_send_rate_hz": 158.820080584869,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 9.375,
+      "cpu_ticks": 141,
+      "cpu_percent_of_one_core": 1.1998800119988,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 8
+    },
+    {
+      "elapsed_seconds": 110,
+      "tick_rate_hz": 59.8,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 69,
+        "p99": 87
+      },
+      "snapshot_payload_bytes_per_second": 197439.43657491158,
+      "snapshot_send_rate_hz": 158.85175350657912,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 9.67578125,
+      "cpu_ticks": 156,
+      "cpu_percent_of_one_core": 1.5,
+      "phase_counts": {
+        "countdown": 8
+      },
+      "rematch_cycles_started": 12
+    },
+    {
+      "elapsed_seconds": 120,
+      "tick_rate_hz": 59.69403059694031,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 71,
+        "p99": 87
+      },
+      "snapshot_payload_bytes_per_second": 197268.6643612059,
+      "snapshot_send_rate_hz": 158.8787636667471,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 9.765625,
+      "cpu_ticks": 171,
+      "cpu_percent_of_one_core": 1.4998500149985001,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 12
+    },
+    {
+      "elapsed_seconds": 130,
+      "tick_rate_hz": 59.79402059794021,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 71,
+        "p99": 87
+      },
+      "snapshot_payload_bytes_per_second": 198696.0499760571,
+      "snapshot_send_rate_hz": 158.95976669551288,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 10.23046875,
+      "cpu_ticks": 185,
+      "cpu_percent_of_one_core": 1.3998600139986004,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 12
+    },
+    {
+      "elapsed_seconds": 140,
+      "tick_rate_hz": 59.79402059794021,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 71,
+        "p99": 87
+      },
+      "snapshot_payload_bytes_per_second": 200113.52243432586,
+      "snapshot_send_rate_hz": 158.97525552558392,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 1,
+      "rss_mb": 10.6171875,
+      "cpu_ticks": 198,
+      "cpu_percent_of_one_core": 1.2998700129987002,
+      "phase_counts": {
+        "running": 4,
+        "countdown": 4
+      },
+      "rematch_cycles_started": 14
+    },
+    {
+      "elapsed_seconds": 150,
+      "tick_rate_hz": 59.79402059794021,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 71,
+        "p99": 87
+      },
+      "snapshot_payload_bytes_per_second": 198596.56403908314,
+      "snapshot_send_rate_hz": 158.98943377536145,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 2,
+      "rss_mb": 10.80078125,
+      "cpu_ticks": 210,
+      "cpu_percent_of_one_core": 1.1998800119988,
+      "phase_counts": {
+        "countdown": 4,
+        "running": 4
+      },
+      "rematch_cycles_started": 16
+    },
+    {
+      "elapsed_seconds": 160,
+      "tick_rate_hz": 59.8,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 71,
+        "p99": 87
+      },
+      "snapshot_payload_bytes_per_second": 198587.0089179494,
+      "snapshot_send_rate_hz": 159.04787774396684,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 10.9765625,
+      "cpu_ticks": 225,
+      "cpu_percent_of_one_core": 1.5,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 16
+    },
+    {
+      "elapsed_seconds": 170,
+      "tick_rate_hz": 59.78206538038588,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 70,
+        "p99": 87
+      },
+      "snapshot_payload_bytes_per_second": 199599.40740717913,
+      "snapshot_send_rate_hz": 159.05564068088546,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 11.234375,
+      "cpu_ticks": 239,
+      "cpu_percent_of_one_core": 1.3995801259622114,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 16
+    },
+    {
+      "elapsed_seconds": 180,
+      "tick_rate_hz": 59.79402059794021,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 70,
+        "p99": 87
+      },
+      "snapshot_payload_bytes_per_second": 199145.1369806578,
+      "snapshot_send_rate_hz": 159.0629905057672,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 11.39453125,
+      "cpu_ticks": 253,
+      "cpu_percent_of_one_core": 1.3998600139986004,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 18
+    },
+    {
+      "elapsed_seconds": 190,
+      "tick_rate_hz": 59.8,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 69,
+        "p99": 87
+      },
+      "snapshot_payload_bytes_per_second": 199499.1962013799,
+      "snapshot_send_rate_hz": 159.11071148984016,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 1,
+      "rss_mb": 12.0390625,
+      "cpu_ticks": 267,
+      "cpu_percent_of_one_core": 1.4000000000000001,
+      "phase_counts": {
+        "countdown": 2,
+        "running": 6
+      },
+      "rematch_cycles_started": 19
+    },
+    {
+      "elapsed_seconds": 200,
+      "tick_rate_hz": 59.8,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 69,
+        "p99": 87
+      },
+      "snapshot_payload_bytes_per_second": 198775.60471131754,
+      "snapshot_send_rate_hz": 159.11478192648823,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 3,
+      "rss_mb": 12.43359375,
+      "cpu_ticks": 281,
+      "cpu_percent_of_one_core": 1.4000000000000001,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 20
+    },
+    {
+      "elapsed_seconds": 210,
+      "tick_rate_hz": 59.79402059794021,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 70,
+        "p99": 87
+      },
+      "snapshot_payload_bytes_per_second": 199823.0748468352,
+      "snapshot_send_rate_hz": 159.11817838466948,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 12.76953125,
+      "cpu_ticks": 295,
+      "cpu_percent_of_one_core": 1.3998600139986004,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 20
+    },
+    {
+      "elapsed_seconds": 220,
+      "tick_rate_hz": 59.69403059694031,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 70,
+        "p99": 87
+      },
+      "snapshot_payload_bytes_per_second": 200146.65715102482,
+      "snapshot_send_rate_hz": 159.12104265733026,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 12.81640625,
+      "cpu_ticks": 308,
+      "cpu_percent_of_one_core": 1.2998700129987002,
+      "phase_counts": {
+        "running": 4,
+        "countdown": 4
+      },
+      "rematch_cycles_started": 22
+    },
+    {
+      "elapsed_seconds": 230,
+      "tick_rate_hz": 59.78804239152169,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 70,
+        "p99": 87
+      },
+      "snapshot_payload_bytes_per_second": 200219.21507031654,
+      "snapshot_send_rate_hz": 159.15724394263265,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 12.88671875,
+      "cpu_ticks": 322,
+      "cpu_percent_of_one_core": 1.3997200559888023,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 22
+    },
+    {
+      "elapsed_seconds": 240,
+      "tick_rate_hz": 59.8,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 70,
+        "p99": 88
+      },
+      "snapshot_payload_bytes_per_second": 199590.92790393118,
+      "snapshot_send_rate_hz": 159.15864172939942,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 13.66015625,
+      "cpu_ticks": 336,
+      "cpu_percent_of_one_core": 1.4000000000000001,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 24
+    },
+    {
+      "elapsed_seconds": 250,
+      "tick_rate_hz": 59.78804239152169,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 70,
+        "p99": 88
+      },
+      "snapshot_payload_bytes_per_second": 199921.39282615314,
+      "snapshot_send_rate_hz": 159.15784543286054,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 2,
+      "rss_mb": 13.94921875,
+      "cpu_ticks": 354,
+      "cpu_percent_of_one_core": 1.7996400719856027,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 24
+    },
+    {
+      "elapsed_seconds": 260,
+      "tick_rate_hz": 59.78804239152169,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 70,
+        "p99": 88
+      },
+      "snapshot_payload_bytes_per_second": 200575.15830703382,
+      "snapshot_send_rate_hz": 159.18971725018955,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 14.02734375,
+      "cpu_ticks": 369,
+      "cpu_percent_of_one_core": 1.4997000599880022,
+      "phase_counts": {
+        "running": 4,
+        "countdown": 4
+      },
+      "rematch_cycles_started": 26
+    },
+    {
+      "elapsed_seconds": 270,
+      "tick_rate_hz": 59.8,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 71,
+        "p99": 88
+      },
+      "snapshot_payload_bytes_per_second": 200430.09409156605,
+      "snapshot_send_rate_hz": 159.18905761516814,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 14.4296875,
+      "cpu_ticks": 389,
+      "cpu_percent_of_one_core": 2,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 26
+    },
+    {
+      "elapsed_seconds": 280,
+      "tick_rate_hz": 59.78804239152169,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 72,
+        "p99": 89
+      },
+      "snapshot_payload_bytes_per_second": 200387.52877927222,
+      "snapshot_send_rate_hz": 159.1884814557892,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 14.78515625,
+      "cpu_ticks": 406,
+      "cpu_percent_of_one_core": 1.6996600679864027,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 28
+    },
+    {
+      "elapsed_seconds": 290,
+      "tick_rate_hz": 59.78206538038588,
+      "tick_duration_us": {
+        "p50": 46,
+        "p95": 71,
+        "p99": 89
+      },
+      "snapshot_payload_bytes_per_second": 200861.91826175776,
+      "snapshot_send_rate_hz": 159.2152996938955,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 15.72265625,
+      "cpu_ticks": 419,
+      "cpu_percent_of_one_core": 1.2996101169649106,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 28
+    },
+    {
+      "elapsed_seconds": 300,
+      "tick_rate_hz": 59.8,
+      "tick_duration_us": {
+        "p50": 46,
+        "p95": 71,
+        "p99": 88
+      },
+      "snapshot_payload_bytes_per_second": 200392.22026402075,
+      "snapshot_send_rate_hz": 159.2139130692581,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 1,
+      "rss_mb": 15.8359375,
+      "cpu_ticks": 432,
+      "cpu_percent_of_one_core": 1.3,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 30
+    },
+    {
+      "elapsed_seconds": 310,
+      "tick_rate_hz": 59.79402059794021,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 72,
+        "p99": 89
+      },
+      "snapshot_payload_bytes_per_second": 200732.3820169343,
+      "snapshot_send_rate_hz": 159.2133058939575,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 15.91015625,
+      "cpu_ticks": 446,
+      "cpu_percent_of_one_core": 1.3998600139986004,
+      "phase_counts": {
+        "countdown": 2,
+        "running": 6
+      },
+      "rematch_cycles_started": 31
+    },
+    {
+      "elapsed_seconds": 320,
+      "tick_rate_hz": 59.79402059794021,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 72,
+        "p99": 89
+      },
+      "snapshot_payload_bytes_per_second": 201034.95054568799,
+      "snapshot_send_rate_hz": 159.23718552549286,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 18.33203125,
+      "cpu_ticks": 461,
+      "cpu_percent_of_one_core": 1.4998500149985001,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 31
+    },
+    {
+      "elapsed_seconds": 330,
+      "tick_rate_hz": 59.7,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 72,
+        "p99": 89
+      },
+      "snapshot_payload_bytes_per_second": 201251.1556455245,
+      "snapshot_send_rate_hz": 159.23587303331684,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 18.35546875,
+      "cpu_ticks": 474,
+      "cpu_percent_of_one_core": 1.3,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 32
+    },
+    {
+      "elapsed_seconds": 340,
+      "tick_rate_hz": 59.79402059794021,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 71,
+        "p99": 89
+      },
+      "snapshot_payload_bytes_per_second": 200952.50287735846,
+      "snapshot_send_rate_hz": 159.23439068050746,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 19.9375,
+      "cpu_ticks": 487,
+      "cpu_percent_of_one_core": 1.2998700129987002,
+      "phase_counts": {
+        "running": 4,
+        "countdown": 4
+      },
+      "rematch_cycles_started": 34
+    },
+    {
+      "elapsed_seconds": 350,
+      "tick_rate_hz": 59.79402059794021,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 72,
+        "p99": 88
+      },
+      "snapshot_payload_bytes_per_second": 201151.47842801688,
+      "snapshot_send_rate_hz": 159.23312002948498,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 1,
+      "rss_mb": 22.41015625,
+      "cpu_ticks": 501,
+      "cpu_percent_of_one_core": 1.3998600139986004,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 34
+    },
+    {
+      "elapsed_seconds": 360,
+      "tick_rate_hz": 59.8,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 72,
+        "p99": 89
+      },
+      "snapshot_payload_bytes_per_second": 201215.01223219535,
+      "snapshot_send_rate_hz": 159.25369989038282,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 22.4765625,
+      "cpu_ticks": 513,
+      "cpu_percent_of_one_core": 1.2,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 35
+    },
+    {
+      "elapsed_seconds": 370,
+      "tick_rate_hz": 59.78804239152169,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 72,
+        "p99": 89
+      },
+      "snapshot_payload_bytes_per_second": 201422.7595877803,
+      "snapshot_send_rate_hz": 159.25203822483934,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 24.22265625,
+      "cpu_ticks": 529,
+      "cpu_percent_of_one_core": 1.5996800639872026,
+      "phase_counts": {
+        "running": 2,
+        "countdown": 6
+      },
+      "rematch_cycles_started": 38
+    },
+    {
+      "elapsed_seconds": 380,
+      "tick_rate_hz": 59.8,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 72,
+        "p99": 89
+      },
+      "snapshot_payload_bytes_per_second": 200945.0247953335,
+      "snapshot_send_rate_hz": 159.25049918729022,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 2,
+      "rss_mb": 26.328125,
+      "cpu_ticks": 543,
+      "cpu_percent_of_one_core": 1.4000000000000001,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 38
+    },
+    {
+      "elapsed_seconds": 390,
+      "tick_rate_hz": 59.79402059794021,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 72,
+        "p99": 89
+      },
+      "snapshot_payload_bytes_per_second": 201381.2247064424,
+      "snapshot_send_rate_hz": 159.2687276089905,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 26.3984375,
+      "cpu_ticks": 557,
+      "cpu_percent_of_one_core": 1.3998600139986004,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 38
+    },
+    {
+      "elapsed_seconds": 400,
+      "tick_rate_hz": 59.79402059794021,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 72,
+        "p99": 89
+      },
+      "snapshot_payload_bytes_per_second": 201475.61399288228,
+      "snapshot_send_rate_hz": 159.2665138772497,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 28.59765625,
+      "cpu_ticks": 571,
+      "cpu_percent_of_one_core": 1.3998600139986004,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 39
+    },
+    {
+      "elapsed_seconds": 410,
+      "tick_rate_hz": 59.79402059794021,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 72,
+        "p99": 89
+      },
+      "snapshot_payload_bytes_per_second": 201401.48485996685,
+      "snapshot_send_rate_hz": 159.26480682164475,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 28.7265625,
+      "cpu_ticks": 585,
+      "cpu_percent_of_one_core": 1.3998600139986004,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 40
+    },
+    {
+      "elapsed_seconds": 420,
+      "tick_rate_hz": 59.79402059794021,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 72,
+        "p99": 89
+      },
+      "snapshot_payload_bytes_per_second": 201082.7809225026,
+      "snapshot_send_rate_hz": 159.28136168780313,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 28.75390625,
+      "cpu_ticks": 600,
+      "cpu_percent_of_one_core": 1.4998500149985001,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 42
+    },
+    {
+      "elapsed_seconds": 430,
+      "tick_rate_hz": 59.69403059694031,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 71,
+        "p99": 88
+      },
+      "snapshot_payload_bytes_per_second": 201411.47244061588,
+      "snapshot_send_rate_hz": 159.2797933420855,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 2,
+      "rss_mb": 28.94140625,
+      "cpu_ticks": 614,
+      "cpu_percent_of_one_core": 1.3998600139986004,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 42
+    },
+    {
+      "elapsed_seconds": 440,
+      "tick_rate_hz": 59.8,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 71,
+        "p99": 88
+      },
+      "snapshot_payload_bytes_per_second": 201535.18477621875,
+      "snapshot_send_rate_hz": 159.27769124286607,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 29.046875,
+      "cpu_ticks": 627,
+      "cpu_percent_of_one_core": 1.3,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 43
+    },
+    {
+      "elapsed_seconds": 450,
+      "tick_rate_hz": 59.8,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 72,
+        "p99": 88
+      },
+      "snapshot_payload_bytes_per_second": 201484.9444882537,
+      "snapshot_send_rate_hz": 159.27613308905867,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 28.23828125,
+      "cpu_ticks": 642,
+      "cpu_percent_of_one_core": 1.5,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 44
+    },
+    {
+      "elapsed_seconds": 460,
+      "tick_rate_hz": 59.79402059794021,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 72,
+        "p99": 89
+      },
+      "snapshot_payload_bytes_per_second": 201633.73508639645,
+      "snapshot_send_rate_hz": 159.2913318560675,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 30.5546875,
+      "cpu_ticks": 656,
+      "cpu_percent_of_one_core": 1.3998600139986004,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 44
+    },
+    {
+      "elapsed_seconds": 470,
+      "tick_rate_hz": 59.79402059794021,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 71,
+        "p99": 88
+      },
+      "snapshot_payload_bytes_per_second": 201369.2157128001,
+      "snapshot_send_rate_hz": 159.28921198403782,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 30.55859375,
+      "cpu_ticks": 668,
+      "cpu_percent_of_one_core": 1.1998800119988,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 46
+    },
+    {
+      "elapsed_seconds": 480,
+      "tick_rate_hz": 59.8,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 72,
+        "p99": 89
+      },
+      "snapshot_payload_bytes_per_second": 201747.02849726696,
+      "snapshot_send_rate_hz": 159.28685088052208,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 2,
+      "rss_mb": 30.59765625,
+      "cpu_ticks": 683,
+      "cpu_percent_of_one_core": 1.5,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 46
+    },
+    {
+      "elapsed_seconds": 490,
+      "tick_rate_hz": 59.79402059794021,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 72,
+        "p99": 88
+      },
+      "snapshot_payload_bytes_per_second": 201729.03105079924,
+      "snapshot_send_rate_hz": 159.30127942531172,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 30.7109375,
+      "cpu_ticks": 696,
+      "cpu_percent_of_one_core": 1.2998700129987002,
+      "phase_counts": {
+        "running": 6,
+        "countdown": 2
+      },
+      "rematch_cycles_started": 48
+    },
+    {
+      "elapsed_seconds": 500,
+      "tick_rate_hz": 59.79402059794021,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 71,
+        "p99": 88
+      },
+      "snapshot_payload_bytes_per_second": 201557.0317666398,
+      "snapshot_send_rate_hz": 159.29893459339033,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 30.91796875,
+      "cpu_ticks": 710,
+      "cpu_percent_of_one_core": 1.3998600139986004,
+      "phase_counts": {
+        "running": 4,
+        "countdown": 4
+      },
+      "rematch_cycles_started": 50
+    },
+    {
+      "elapsed_seconds": 510,
+      "tick_rate_hz": 59.79402059794021,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 72,
+        "p99": 89
+      },
+      "snapshot_payload_bytes_per_second": 201629.8819274562,
+      "snapshot_send_rate_hz": 159.29677892108012,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 32.75,
+      "cpu_ticks": 724,
+      "cpu_percent_of_one_core": 1.3998600139986004,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 50
+    },
+    {
+      "elapsed_seconds": 520,
+      "tick_rate_hz": 59.8,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 72,
+        "p99": 89
+      },
+      "snapshot_payload_bytes_per_second": 201952.36761026044,
+      "snapshot_send_rate_hz": 159.30998538765866,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 30.2421875,
+      "cpu_ticks": 738,
+      "cpu_percent_of_one_core": 1.4000000000000001,
+      "phase_counts": {
+        "countdown": 4,
+        "running": 4
+      },
+      "rematch_cycles_started": 52
+    },
+    {
+      "elapsed_seconds": 530,
+      "tick_rate_hz": 59.79402059794021,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 72,
+        "p99": 89
+      },
+      "snapshot_payload_bytes_per_second": 201708.34474739773,
+      "snapshot_send_rate_hz": 159.3078225600432,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 4,
+      "rss_mb": 27.75,
+      "cpu_ticks": 752,
+      "cpu_percent_of_one_core": 1.3998600139986004,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 52
+    },
+    {
+      "elapsed_seconds": 540,
+      "tick_rate_hz": 59.7,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 72,
+        "p99": 89
+      },
+      "snapshot_payload_bytes_per_second": 201491.5060419781,
+      "snapshot_send_rate_hz": 159.3058155229265,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 27.75390625,
+      "cpu_ticks": 765,
+      "cpu_percent_of_one_core": 1.3,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 54
+    },
+    {
+      "elapsed_seconds": 550,
+      "tick_rate_hz": 59.8,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 72,
+        "p99": 89
+      },
+      "snapshot_payload_bytes_per_second": 201862.67649820942,
+      "snapshot_send_rate_hz": 159.3039062344578,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 27.7578125,
+      "cpu_ticks": 781,
+      "cpu_percent_of_one_core": 1.6,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 54
+    },
+    {
+      "elapsed_seconds": 560,
+      "tick_rate_hz": 59.8,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 72,
+        "p99": 89
+      },
+      "snapshot_payload_bytes_per_second": 201752.97227566832,
+      "snapshot_send_rate_hz": 159.3161939776408,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 27.76953125,
+      "cpu_ticks": 796,
+      "cpu_percent_of_one_core": 1.5,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 56
+    },
+    {
+      "elapsed_seconds": 570,
+      "tick_rate_hz": 59.8,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 72,
+        "p99": 89
+      },
+      "snapshot_payload_bytes_per_second": 201448.8807762149,
+      "snapshot_send_rate_hz": 159.314200098414,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 25.37109375,
+      "cpu_ticks": 808,
+      "cpu_percent_of_one_core": 1.2,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 58
+    },
+    {
+      "elapsed_seconds": 580,
+      "tick_rate_hz": 59.8,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 72,
+        "p99": 88
+      },
+      "snapshot_payload_bytes_per_second": 201500.6597732592,
+      "snapshot_send_rate_hz": 159.3121422261371,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 2,
+      "rss_mb": 25.375,
+      "cpu_ticks": 823,
+      "cpu_percent_of_one_core": 1.5,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 58
+    },
+    {
+      "elapsed_seconds": 590,
+      "tick_rate_hz": 59.79402059794021,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 72,
+        "p99": 88
+      },
+      "snapshot_payload_bytes_per_second": 201806.48975732794,
+      "snapshot_send_rate_hz": 159.32358611119162,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 25.37890625,
+      "cpu_ticks": 837,
+      "cpu_percent_of_one_core": 1.3998600139986004,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 58
+    }
+  ],
+  "check": {
+    "four_rooms_eight_players": true,
+    "running_snapshots_for_every_player": true,
+    "tick_p50_below_8ms": true,
+    "tick_p95_below_8ms": true,
+    "tick_p99_below_16_7ms": true,
+    "tick_rate_near_60_hz": true,
+    "no_session_projectile_leak": true,
+    "bounded_rss_drift_mb": 24.84765625,
+    "no_server_errors": true,
+    "bounded_rss_drift_pass": true
+  },
+  "run": {
+    "measured_seconds": 600.091,
+    "client_snapshot_summary": [
+      {
+        "room_index": 0,
+        "seat": "rider",
+        "phase": "countdown",
+        "snapshots": 12072,
+        "snapshot_bytes": 15290424,
+        "running_snapshots": 10476,
+        "finished_snapshots": 15,
+        "snapshot_rate_p50_hz": 19.928258270227182,
+        "snapshot_rate_p95_hz": 19.930244145490782,
+        "errors": []
+      },
+      {
+        "room_index": 0,
+        "seat": "gunner",
+        "phase": "countdown",
+        "snapshots": 12070,
+        "snapshot_bytes": 15288684,
+        "running_snapshots": 10476,
+        "finished_snapshots": 15,
+        "snapshot_rate_p50_hz": 19.928258270227182,
+        "snapshot_rate_p95_hz": 19.930244145490782,
+        "errors": []
+      },
+      {
+        "room_index": 1,
+        "seat": "rider",
+        "phase": "running",
+        "snapshots": 12068,
+        "snapshot_bytes": 15282461,
+        "running_snapshots": 10456,
+        "finished_snapshots": 15,
+        "snapshot_rate_p50_hz": 19.928258270227182,
+        "snapshot_rate_p95_hz": 19.930244145490782,
+        "errors": []
+      },
+      {
+        "room_index": 1,
+        "seat": "gunner",
+        "phase": "running",
+        "snapshots": 12066,
+        "snapshot_bytes": 15280721,
+        "running_snapshots": 10456,
+        "finished_snapshots": 15,
+        "snapshot_rate_p50_hz": 19.928258270227182,
+        "snapshot_rate_p95_hz": 19.930244145490782,
+        "errors": []
+      },
+      {
+        "room_index": 2,
+        "seat": "rider",
+        "phase": "running",
+        "snapshots": 12064,
+        "snapshot_bytes": 15273723,
+        "running_snapshots": 10453,
+        "finished_snapshots": 15,
+        "snapshot_rate_p50_hz": 19.928258270227182,
+        "snapshot_rate_p95_hz": 19.930244145490782,
+        "errors": []
+      },
+      {
+        "room_index": 2,
+        "seat": "gunner",
+        "phase": "running",
+        "snapshots": 12063,
+        "snapshot_bytes": 15272854,
+        "running_snapshots": 10453,
+        "finished_snapshots": 15,
+        "snapshot_rate_p50_hz": 19.928258270227182,
+        "snapshot_rate_p95_hz": 19.930244145490782,
+        "errors": []
+      },
+      {
+        "room_index": 3,
+        "seat": "rider",
+        "phase": "countdown",
+        "snapshots": 12061,
+        "snapshot_bytes": 15291632,
+        "running_snapshots": 10476,
+        "finished_snapshots": 15,
+        "snapshot_rate_p50_hz": 19.928258270227182,
+        "snapshot_rate_p95_hz": 19.930244145490782,
+        "errors": []
+      },
+      {
+        "room_index": 3,
+        "seat": "gunner",
+        "phase": "countdown",
+        "snapshots": 12059,
+        "snapshot_bytes": 15289892,
+        "running_snapshots": 10476,
+        "finished_snapshots": 15,
+        "snapshot_rate_p50_hz": 19.928258270227182,
+        "snapshot_rate_p95_hz": 19.930244145490782,
+        "errors": []
+      }
+    ],
+    "tick_count": 36221,
+    "tick_duration_us": {
+      "p50": 47,
+      "p95": 72,
+      "p99": 88,
+      "sample_count": 36000
+    },
+    "snapshot_count": 96523,
+    "snapshot_payload_bytes_total": 122268539,
+    "snapshot_payload_bytes_per_second": 201817.0120392805,
+    "snapshot_send_rate_hz": 159.32130711946652,
+    "room_count": 4,
+    "connected_sessions_after_leave": 0,
+    "reserved_sessions_after_leave": 0,
+    "active_projectiles_after_leave": 0,
+    "retained_empty_rooms_after_leave": 4,
+    "server_errors": []
+  },
+  "metrics_samples": [
+    {
+      "elapsed_seconds": 10,
+      "tick_rate_hz": 59.776089564174335,
+      "tick_duration_us": {
+        "p50": 34,
+        "p95": 64,
+        "p99": 84
+      },
+      "snapshot_payload_bytes_per_second": 167054.06898830438,
+      "snapshot_send_rate_hz": 155.24925411000945,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 7.90234375,
+      "cpu_ticks": 21,
+      "cpu_percent_of_one_core": 1.599360255897641,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 0
+    },
+    {
+      "elapsed_seconds": 20,
+      "tick_rate_hz": 59.79402059794021,
+      "tick_duration_us": {
+        "p50": 33,
+        "p95": 62,
+        "p99": 77
+      },
+      "snapshot_payload_bytes_per_second": 183652.09565692532,
+      "snapshot_send_rate_hz": 156.77565534693898,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 8.15234375,
+      "cpu_ticks": 34,
+      "cpu_percent_of_one_core": 1.2998700129987002,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 0
+    },
+    {
+      "elapsed_seconds": 30,
+      "tick_rate_hz": 59.8,
+      "tick_duration_us": {
+        "p50": 38,
+        "p95": 64,
+        "p99": 83
+      },
+      "snapshot_payload_bytes_per_second": 194009.8766722362,
+      "snapshot_send_rate_hz": 157.67373892624312,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 8.3203125,
+      "cpu_ticks": 48,
+      "cpu_percent_of_one_core": 1.4000000000000001,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 0
+    },
+    {
+      "elapsed_seconds": 40,
+      "tick_rate_hz": 59.79402059794021,
+      "tick_duration_us": {
+        "p50": 34,
+        "p95": 63,
+        "p99": 79
+      },
+      "snapshot_payload_bytes_per_second": 192969.94774993695,
+      "snapshot_send_rate_hz": 158.00356115332647,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 8.42578125,
+      "cpu_ticks": 59,
+      "cpu_percent_of_one_core": 1.0998900109989,
+      "phase_counts": {
+        "countdown": 8
+      },
+      "rematch_cycles_started": 4
+    },
+    {
+      "elapsed_seconds": 50,
+      "tick_rate_hz": 59.79402059794021,
+      "tick_duration_us": {
+        "p50": 39,
+        "p95": 64,
+        "p99": 84
+      },
+      "snapshot_payload_bytes_per_second": 191836.824566818,
+      "snapshot_send_rate_hz": 158.21151448484517,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 8.5078125,
+      "cpu_ticks": 72,
+      "cpu_percent_of_one_core": 1.2998700129987002,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 4
+    },
+    {
+      "elapsed_seconds": 60,
+      "tick_rate_hz": 59.78206538038588,
+      "tick_duration_us": {
+        "p50": 43,
+        "p95": 65,
+        "p99": 85
+      },
+      "snapshot_payload_bytes_per_second": 196186.35169542846,
+      "snapshot_send_rate_hz": 158.47857961814552,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 8.7265625,
+      "cpu_ticks": 86,
+      "cpu_percent_of_one_core": 1.3995801259622114,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 4
+    },
+    {
+      "elapsed_seconds": 70,
+      "tick_rate_hz": 59.79402059794021,
+      "tick_duration_us": {
+        "p50": 46,
+        "p95": 65,
+        "p99": 85
+      },
+      "snapshot_payload_bytes_per_second": 198461.80437185024,
+      "snapshot_send_rate_hz": 158.57223222112944,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 9.01171875,
+      "cpu_ticks": 101,
+      "cpu_percent_of_one_core": 1.4998500149985001,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 4
+    },
+    {
+      "elapsed_seconds": 80,
+      "tick_rate_hz": 59.78804239152169,
+      "tick_duration_us": {
+        "p50": 46,
+        "p95": 65,
+        "p99": 85
+      },
+      "snapshot_payload_bytes_per_second": 193783.35365773152,
+      "snapshot_send_rate_hz": 158.64108575529963,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 9.19140625,
+      "cpu_ticks": 115,
+      "cpu_percent_of_one_core": 1.3997200559888023,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 8
+    },
+    {
+      "elapsed_seconds": 90,
+      "tick_rate_hz": 59.79402059794021,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 67,
+        "p99": 87
+      },
+      "snapshot_payload_bytes_per_second": 196608.97342166078,
+      "snapshot_send_rate_hz": 158.78171120278267,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 1,
+      "rss_mb": 9.23828125,
+      "cpu_ticks": 129,
+      "cpu_percent_of_one_core": 1.3998600139986004,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 8
+    },
+    {
+      "elapsed_seconds": 100,
+      "tick_rate_hz": 59.79402059794021,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 69,
+        "p99": 87
+      },
+      "snapshot_payload_bytes_per_second": 199253.35282268608,
+      "snapshot_send_rate_hz": 158.820080584869,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 9.375,
+      "cpu_ticks": 141,
+      "cpu_percent_of_one_core": 1.1998800119988,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 8
+    },
+    {
+      "elapsed_seconds": 110,
+      "tick_rate_hz": 59.8,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 69,
+        "p99": 87
+      },
+      "snapshot_payload_bytes_per_second": 197439.43657491158,
+      "snapshot_send_rate_hz": 158.85175350657912,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 9.67578125,
+      "cpu_ticks": 156,
+      "cpu_percent_of_one_core": 1.5,
+      "phase_counts": {
+        "countdown": 8
+      },
+      "rematch_cycles_started": 12
+    },
+    {
+      "elapsed_seconds": 120,
+      "tick_rate_hz": 59.69403059694031,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 71,
+        "p99": 87
+      },
+      "snapshot_payload_bytes_per_second": 197268.6643612059,
+      "snapshot_send_rate_hz": 158.8787636667471,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 9.765625,
+      "cpu_ticks": 171,
+      "cpu_percent_of_one_core": 1.4998500149985001,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 12
+    },
+    {
+      "elapsed_seconds": 130,
+      "tick_rate_hz": 59.79402059794021,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 71,
+        "p99": 87
+      },
+      "snapshot_payload_bytes_per_second": 198696.0499760571,
+      "snapshot_send_rate_hz": 158.95976669551288,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 10.23046875,
+      "cpu_ticks": 185,
+      "cpu_percent_of_one_core": 1.3998600139986004,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 12
+    },
+    {
+      "elapsed_seconds": 140,
+      "tick_rate_hz": 59.79402059794021,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 71,
+        "p99": 87
+      },
+      "snapshot_payload_bytes_per_second": 200113.52243432586,
+      "snapshot_send_rate_hz": 158.97525552558392,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 1,
+      "rss_mb": 10.6171875,
+      "cpu_ticks": 198,
+      "cpu_percent_of_one_core": 1.2998700129987002,
+      "phase_counts": {
+        "running": 4,
+        "countdown": 4
+      },
+      "rematch_cycles_started": 14
+    },
+    {
+      "elapsed_seconds": 150,
+      "tick_rate_hz": 59.79402059794021,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 71,
+        "p99": 87
+      },
+      "snapshot_payload_bytes_per_second": 198596.56403908314,
+      "snapshot_send_rate_hz": 158.98943377536145,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 2,
+      "rss_mb": 10.80078125,
+      "cpu_ticks": 210,
+      "cpu_percent_of_one_core": 1.1998800119988,
+      "phase_counts": {
+        "countdown": 4,
+        "running": 4
+      },
+      "rematch_cycles_started": 16
+    },
+    {
+      "elapsed_seconds": 160,
+      "tick_rate_hz": 59.8,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 71,
+        "p99": 87
+      },
+      "snapshot_payload_bytes_per_second": 198587.0089179494,
+      "snapshot_send_rate_hz": 159.04787774396684,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 10.9765625,
+      "cpu_ticks": 225,
+      "cpu_percent_of_one_core": 1.5,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 16
+    },
+    {
+      "elapsed_seconds": 170,
+      "tick_rate_hz": 59.78206538038588,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 70,
+        "p99": 87
+      },
+      "snapshot_payload_bytes_per_second": 199599.40740717913,
+      "snapshot_send_rate_hz": 159.05564068088546,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 11.234375,
+      "cpu_ticks": 239,
+      "cpu_percent_of_one_core": 1.3995801259622114,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 16
+    },
+    {
+      "elapsed_seconds": 180,
+      "tick_rate_hz": 59.79402059794021,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 70,
+        "p99": 87
+      },
+      "snapshot_payload_bytes_per_second": 199145.1369806578,
+      "snapshot_send_rate_hz": 159.0629905057672,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 11.39453125,
+      "cpu_ticks": 253,
+      "cpu_percent_of_one_core": 1.3998600139986004,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 18
+    },
+    {
+      "elapsed_seconds": 190,
+      "tick_rate_hz": 59.8,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 69,
+        "p99": 87
+      },
+      "snapshot_payload_bytes_per_second": 199499.1962013799,
+      "snapshot_send_rate_hz": 159.11071148984016,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 1,
+      "rss_mb": 12.0390625,
+      "cpu_ticks": 267,
+      "cpu_percent_of_one_core": 1.4000000000000001,
+      "phase_counts": {
+        "countdown": 2,
+        "running": 6
+      },
+      "rematch_cycles_started": 19
+    },
+    {
+      "elapsed_seconds": 200,
+      "tick_rate_hz": 59.8,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 69,
+        "p99": 87
+      },
+      "snapshot_payload_bytes_per_second": 198775.60471131754,
+      "snapshot_send_rate_hz": 159.11478192648823,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 3,
+      "rss_mb": 12.43359375,
+      "cpu_ticks": 281,
+      "cpu_percent_of_one_core": 1.4000000000000001,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 20
+    },
+    {
+      "elapsed_seconds": 210,
+      "tick_rate_hz": 59.79402059794021,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 70,
+        "p99": 87
+      },
+      "snapshot_payload_bytes_per_second": 199823.0748468352,
+      "snapshot_send_rate_hz": 159.11817838466948,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 12.76953125,
+      "cpu_ticks": 295,
+      "cpu_percent_of_one_core": 1.3998600139986004,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 20
+    },
+    {
+      "elapsed_seconds": 220,
+      "tick_rate_hz": 59.69403059694031,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 70,
+        "p99": 87
+      },
+      "snapshot_payload_bytes_per_second": 200146.65715102482,
+      "snapshot_send_rate_hz": 159.12104265733026,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 12.81640625,
+      "cpu_ticks": 308,
+      "cpu_percent_of_one_core": 1.2998700129987002,
+      "phase_counts": {
+        "running": 4,
+        "countdown": 4
+      },
+      "rematch_cycles_started": 22
+    },
+    {
+      "elapsed_seconds": 230,
+      "tick_rate_hz": 59.78804239152169,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 70,
+        "p99": 87
+      },
+      "snapshot_payload_bytes_per_second": 200219.21507031654,
+      "snapshot_send_rate_hz": 159.15724394263265,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 12.88671875,
+      "cpu_ticks": 322,
+      "cpu_percent_of_one_core": 1.3997200559888023,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 22
+    },
+    {
+      "elapsed_seconds": 240,
+      "tick_rate_hz": 59.8,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 70,
+        "p99": 88
+      },
+      "snapshot_payload_bytes_per_second": 199590.92790393118,
+      "snapshot_send_rate_hz": 159.15864172939942,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 13.66015625,
+      "cpu_ticks": 336,
+      "cpu_percent_of_one_core": 1.4000000000000001,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 24
+    },
+    {
+      "elapsed_seconds": 250,
+      "tick_rate_hz": 59.78804239152169,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 70,
+        "p99": 88
+      },
+      "snapshot_payload_bytes_per_second": 199921.39282615314,
+      "snapshot_send_rate_hz": 159.15784543286054,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 2,
+      "rss_mb": 13.94921875,
+      "cpu_ticks": 354,
+      "cpu_percent_of_one_core": 1.7996400719856027,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 24
+    },
+    {
+      "elapsed_seconds": 260,
+      "tick_rate_hz": 59.78804239152169,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 70,
+        "p99": 88
+      },
+      "snapshot_payload_bytes_per_second": 200575.15830703382,
+      "snapshot_send_rate_hz": 159.18971725018955,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 14.02734375,
+      "cpu_ticks": 369,
+      "cpu_percent_of_one_core": 1.4997000599880022,
+      "phase_counts": {
+        "running": 4,
+        "countdown": 4
+      },
+      "rematch_cycles_started": 26
+    },
+    {
+      "elapsed_seconds": 270,
+      "tick_rate_hz": 59.8,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 71,
+        "p99": 88
+      },
+      "snapshot_payload_bytes_per_second": 200430.09409156605,
+      "snapshot_send_rate_hz": 159.18905761516814,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 14.4296875,
+      "cpu_ticks": 389,
+      "cpu_percent_of_one_core": 2,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 26
+    },
+    {
+      "elapsed_seconds": 280,
+      "tick_rate_hz": 59.78804239152169,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 72,
+        "p99": 89
+      },
+      "snapshot_payload_bytes_per_second": 200387.52877927222,
+      "snapshot_send_rate_hz": 159.1884814557892,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 14.78515625,
+      "cpu_ticks": 406,
+      "cpu_percent_of_one_core": 1.6996600679864027,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 28
+    },
+    {
+      "elapsed_seconds": 290,
+      "tick_rate_hz": 59.78206538038588,
+      "tick_duration_us": {
+        "p50": 46,
+        "p95": 71,
+        "p99": 89
+      },
+      "snapshot_payload_bytes_per_second": 200861.91826175776,
+      "snapshot_send_rate_hz": 159.2152996938955,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 15.72265625,
+      "cpu_ticks": 419,
+      "cpu_percent_of_one_core": 1.2996101169649106,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 28
+    },
+    {
+      "elapsed_seconds": 300,
+      "tick_rate_hz": 59.8,
+      "tick_duration_us": {
+        "p50": 46,
+        "p95": 71,
+        "p99": 88
+      },
+      "snapshot_payload_bytes_per_second": 200392.22026402075,
+      "snapshot_send_rate_hz": 159.2139130692581,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 1,
+      "rss_mb": 15.8359375,
+      "cpu_ticks": 432,
+      "cpu_percent_of_one_core": 1.3,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 30
+    },
+    {
+      "elapsed_seconds": 310,
+      "tick_rate_hz": 59.79402059794021,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 72,
+        "p99": 89
+      },
+      "snapshot_payload_bytes_per_second": 200732.3820169343,
+      "snapshot_send_rate_hz": 159.2133058939575,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 15.91015625,
+      "cpu_ticks": 446,
+      "cpu_percent_of_one_core": 1.3998600139986004,
+      "phase_counts": {
+        "countdown": 2,
+        "running": 6
+      },
+      "rematch_cycles_started": 31
+    },
+    {
+      "elapsed_seconds": 320,
+      "tick_rate_hz": 59.79402059794021,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 72,
+        "p99": 89
+      },
+      "snapshot_payload_bytes_per_second": 201034.95054568799,
+      "snapshot_send_rate_hz": 159.23718552549286,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 18.33203125,
+      "cpu_ticks": 461,
+      "cpu_percent_of_one_core": 1.4998500149985001,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 31
+    },
+    {
+      "elapsed_seconds": 330,
+      "tick_rate_hz": 59.7,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 72,
+        "p99": 89
+      },
+      "snapshot_payload_bytes_per_second": 201251.1556455245,
+      "snapshot_send_rate_hz": 159.23587303331684,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 18.35546875,
+      "cpu_ticks": 474,
+      "cpu_percent_of_one_core": 1.3,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 32
+    },
+    {
+      "elapsed_seconds": 340,
+      "tick_rate_hz": 59.79402059794021,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 71,
+        "p99": 89
+      },
+      "snapshot_payload_bytes_per_second": 200952.50287735846,
+      "snapshot_send_rate_hz": 159.23439068050746,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 19.9375,
+      "cpu_ticks": 487,
+      "cpu_percent_of_one_core": 1.2998700129987002,
+      "phase_counts": {
+        "running": 4,
+        "countdown": 4
+      },
+      "rematch_cycles_started": 34
+    },
+    {
+      "elapsed_seconds": 350,
+      "tick_rate_hz": 59.79402059794021,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 72,
+        "p99": 88
+      },
+      "snapshot_payload_bytes_per_second": 201151.47842801688,
+      "snapshot_send_rate_hz": 159.23312002948498,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 1,
+      "rss_mb": 22.41015625,
+      "cpu_ticks": 501,
+      "cpu_percent_of_one_core": 1.3998600139986004,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 34
+    },
+    {
+      "elapsed_seconds": 360,
+      "tick_rate_hz": 59.8,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 72,
+        "p99": 89
+      },
+      "snapshot_payload_bytes_per_second": 201215.01223219535,
+      "snapshot_send_rate_hz": 159.25369989038282,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 22.4765625,
+      "cpu_ticks": 513,
+      "cpu_percent_of_one_core": 1.2,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 35
+    },
+    {
+      "elapsed_seconds": 370,
+      "tick_rate_hz": 59.78804239152169,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 72,
+        "p99": 89
+      },
+      "snapshot_payload_bytes_per_second": 201422.7595877803,
+      "snapshot_send_rate_hz": 159.25203822483934,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 24.22265625,
+      "cpu_ticks": 529,
+      "cpu_percent_of_one_core": 1.5996800639872026,
+      "phase_counts": {
+        "running": 2,
+        "countdown": 6
+      },
+      "rematch_cycles_started": 38
+    },
+    {
+      "elapsed_seconds": 380,
+      "tick_rate_hz": 59.8,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 72,
+        "p99": 89
+      },
+      "snapshot_payload_bytes_per_second": 200945.0247953335,
+      "snapshot_send_rate_hz": 159.25049918729022,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 2,
+      "rss_mb": 26.328125,
+      "cpu_ticks": 543,
+      "cpu_percent_of_one_core": 1.4000000000000001,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 38
+    },
+    {
+      "elapsed_seconds": 390,
+      "tick_rate_hz": 59.79402059794021,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 72,
+        "p99": 89
+      },
+      "snapshot_payload_bytes_per_second": 201381.2247064424,
+      "snapshot_send_rate_hz": 159.2687276089905,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 26.3984375,
+      "cpu_ticks": 557,
+      "cpu_percent_of_one_core": 1.3998600139986004,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 38
+    },
+    {
+      "elapsed_seconds": 400,
+      "tick_rate_hz": 59.79402059794021,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 72,
+        "p99": 89
+      },
+      "snapshot_payload_bytes_per_second": 201475.61399288228,
+      "snapshot_send_rate_hz": 159.2665138772497,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 28.59765625,
+      "cpu_ticks": 571,
+      "cpu_percent_of_one_core": 1.3998600139986004,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 39
+    },
+    {
+      "elapsed_seconds": 410,
+      "tick_rate_hz": 59.79402059794021,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 72,
+        "p99": 89
+      },
+      "snapshot_payload_bytes_per_second": 201401.48485996685,
+      "snapshot_send_rate_hz": 159.26480682164475,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 28.7265625,
+      "cpu_ticks": 585,
+      "cpu_percent_of_one_core": 1.3998600139986004,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 40
+    },
+    {
+      "elapsed_seconds": 420,
+      "tick_rate_hz": 59.79402059794021,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 72,
+        "p99": 89
+      },
+      "snapshot_payload_bytes_per_second": 201082.7809225026,
+      "snapshot_send_rate_hz": 159.28136168780313,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 28.75390625,
+      "cpu_ticks": 600,
+      "cpu_percent_of_one_core": 1.4998500149985001,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 42
+    },
+    {
+      "elapsed_seconds": 430,
+      "tick_rate_hz": 59.69403059694031,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 71,
+        "p99": 88
+      },
+      "snapshot_payload_bytes_per_second": 201411.47244061588,
+      "snapshot_send_rate_hz": 159.2797933420855,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 2,
+      "rss_mb": 28.94140625,
+      "cpu_ticks": 614,
+      "cpu_percent_of_one_core": 1.3998600139986004,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 42
+    },
+    {
+      "elapsed_seconds": 440,
+      "tick_rate_hz": 59.8,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 71,
+        "p99": 88
+      },
+      "snapshot_payload_bytes_per_second": 201535.18477621875,
+      "snapshot_send_rate_hz": 159.27769124286607,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 29.046875,
+      "cpu_ticks": 627,
+      "cpu_percent_of_one_core": 1.3,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 43
+    },
+    {
+      "elapsed_seconds": 450,
+      "tick_rate_hz": 59.8,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 72,
+        "p99": 88
+      },
+      "snapshot_payload_bytes_per_second": 201484.9444882537,
+      "snapshot_send_rate_hz": 159.27613308905867,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 28.23828125,
+      "cpu_ticks": 642,
+      "cpu_percent_of_one_core": 1.5,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 44
+    },
+    {
+      "elapsed_seconds": 460,
+      "tick_rate_hz": 59.79402059794021,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 72,
+        "p99": 89
+      },
+      "snapshot_payload_bytes_per_second": 201633.73508639645,
+      "snapshot_send_rate_hz": 159.2913318560675,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 30.5546875,
+      "cpu_ticks": 656,
+      "cpu_percent_of_one_core": 1.3998600139986004,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 44
+    },
+    {
+      "elapsed_seconds": 470,
+      "tick_rate_hz": 59.79402059794021,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 71,
+        "p99": 88
+      },
+      "snapshot_payload_bytes_per_second": 201369.2157128001,
+      "snapshot_send_rate_hz": 159.28921198403782,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 30.55859375,
+      "cpu_ticks": 668,
+      "cpu_percent_of_one_core": 1.1998800119988,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 46
+    },
+    {
+      "elapsed_seconds": 480,
+      "tick_rate_hz": 59.8,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 72,
+        "p99": 89
+      },
+      "snapshot_payload_bytes_per_second": 201747.02849726696,
+      "snapshot_send_rate_hz": 159.28685088052208,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 2,
+      "rss_mb": 30.59765625,
+      "cpu_ticks": 683,
+      "cpu_percent_of_one_core": 1.5,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 46
+    },
+    {
+      "elapsed_seconds": 490,
+      "tick_rate_hz": 59.79402059794021,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 72,
+        "p99": 88
+      },
+      "snapshot_payload_bytes_per_second": 201729.03105079924,
+      "snapshot_send_rate_hz": 159.30127942531172,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 30.7109375,
+      "cpu_ticks": 696,
+      "cpu_percent_of_one_core": 1.2998700129987002,
+      "phase_counts": {
+        "running": 6,
+        "countdown": 2
+      },
+      "rematch_cycles_started": 48
+    },
+    {
+      "elapsed_seconds": 500,
+      "tick_rate_hz": 59.79402059794021,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 71,
+        "p99": 88
+      },
+      "snapshot_payload_bytes_per_second": 201557.0317666398,
+      "snapshot_send_rate_hz": 159.29893459339033,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 30.91796875,
+      "cpu_ticks": 710,
+      "cpu_percent_of_one_core": 1.3998600139986004,
+      "phase_counts": {
+        "running": 4,
+        "countdown": 4
+      },
+      "rematch_cycles_started": 50
+    },
+    {
+      "elapsed_seconds": 510,
+      "tick_rate_hz": 59.79402059794021,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 72,
+        "p99": 89
+      },
+      "snapshot_payload_bytes_per_second": 201629.8819274562,
+      "snapshot_send_rate_hz": 159.29677892108012,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 32.75,
+      "cpu_ticks": 724,
+      "cpu_percent_of_one_core": 1.3998600139986004,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 50
+    },
+    {
+      "elapsed_seconds": 520,
+      "tick_rate_hz": 59.8,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 72,
+        "p99": 89
+      },
+      "snapshot_payload_bytes_per_second": 201952.36761026044,
+      "snapshot_send_rate_hz": 159.30998538765866,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 30.2421875,
+      "cpu_ticks": 738,
+      "cpu_percent_of_one_core": 1.4000000000000001,
+      "phase_counts": {
+        "countdown": 4,
+        "running": 4
+      },
+      "rematch_cycles_started": 52
+    },
+    {
+      "elapsed_seconds": 530,
+      "tick_rate_hz": 59.79402059794021,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 72,
+        "p99": 89
+      },
+      "snapshot_payload_bytes_per_second": 201708.34474739773,
+      "snapshot_send_rate_hz": 159.3078225600432,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 4,
+      "rss_mb": 27.75,
+      "cpu_ticks": 752,
+      "cpu_percent_of_one_core": 1.3998600139986004,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 52
+    },
+    {
+      "elapsed_seconds": 540,
+      "tick_rate_hz": 59.7,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 72,
+        "p99": 89
+      },
+      "snapshot_payload_bytes_per_second": 201491.5060419781,
+      "snapshot_send_rate_hz": 159.3058155229265,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 27.75390625,
+      "cpu_ticks": 765,
+      "cpu_percent_of_one_core": 1.3,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 54
+    },
+    {
+      "elapsed_seconds": 550,
+      "tick_rate_hz": 59.8,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 72,
+        "p99": 89
+      },
+      "snapshot_payload_bytes_per_second": 201862.67649820942,
+      "snapshot_send_rate_hz": 159.3039062344578,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 27.7578125,
+      "cpu_ticks": 781,
+      "cpu_percent_of_one_core": 1.6,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 54
+    },
+    {
+      "elapsed_seconds": 560,
+      "tick_rate_hz": 59.8,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 72,
+        "p99": 89
+      },
+      "snapshot_payload_bytes_per_second": 201752.97227566832,
+      "snapshot_send_rate_hz": 159.3161939776408,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 27.76953125,
+      "cpu_ticks": 796,
+      "cpu_percent_of_one_core": 1.5,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 56
+    },
+    {
+      "elapsed_seconds": 570,
+      "tick_rate_hz": 59.8,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 72,
+        "p99": 89
+      },
+      "snapshot_payload_bytes_per_second": 201448.8807762149,
+      "snapshot_send_rate_hz": 159.314200098414,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 25.37109375,
+      "cpu_ticks": 808,
+      "cpu_percent_of_one_core": 1.2,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 58
+    },
+    {
+      "elapsed_seconds": 580,
+      "tick_rate_hz": 59.8,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 72,
+        "p99": 88
+      },
+      "snapshot_payload_bytes_per_second": 201500.6597732592,
+      "snapshot_send_rate_hz": 159.3121422261371,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 2,
+      "rss_mb": 25.375,
+      "cpu_ticks": 823,
+      "cpu_percent_of_one_core": 1.5,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 58
+    },
+    {
+      "elapsed_seconds": 590,
+      "tick_rate_hz": 59.79402059794021,
+      "tick_duration_us": {
+        "p50": 47,
+        "p95": 72,
+        "p99": 88
+      },
+      "snapshot_payload_bytes_per_second": 201806.48975732794,
+      "snapshot_send_rate_hz": 159.32358611119162,
+      "connected_sessions": 8,
+      "reserved_sessions": 0,
+      "active_projectiles": 0,
+      "rss_mb": 25.37890625,
+      "cpu_ticks": 837,
+      "cpu_percent_of_one_core": 1.3998600139986004,
+      "phase_counts": {
+        "running": 8
+      },
+      "rematch_cycles_started": 58
+    }
+  ]
+}

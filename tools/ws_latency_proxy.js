@@ -15,25 +15,40 @@ function argument(name, fallback) {
 const listenPort = argument("--listen-port", 3101);
 const targetPort = argument("--target-port", 3001);
 const rttMs = argument("--rtt-ms", 50);
-const oneWayDelayMs = rttMs / 2;
+const jitterMs = argument("--jitter-ms", 0);
+const seed = argument("--seed", 1) >>> 0;
+const baseOneWayDelayMs = rttMs / 2;
 const listenHost = "127.0.0.1";
 const targetHost = "127.0.0.1";
 
-if (![listenPort, targetPort, rttMs].every(Number.isFinite) || rttMs <= 0) {
-  console.error("Usage: ws_latency_proxy.js --rtt-ms <positive-ms> [--listen-port <port>]");
+if (![listenPort, targetPort, rttMs, jitterMs, seed].every(Number.isFinite)
+  || rttMs < 0 || jitterMs < 0) {
+  console.error("Usage: ws_latency_proxy.js --rtt-ms <ms>=0 --jitter-ms <amplitude-ms>=0 --seed <integer>");
   process.exit(2);
 }
 
+function seededRandom(initialSeed) {
+  let state = initialSeed >>> 0;
+  return () => {
+    state = (Math.imul(state, 1_664_525) + 1_013_904_223) >>> 0;
+    return state / 0x1_0000_0000;
+  };
+}
+
+let nextConnectionId = 0;
 const server = net.createServer((client) => {
+  const connectionSeed = (seed + nextConnectionId++) >>> 0;
   const upstream = net.connect({ host: targetHost, port: targetPort });
   client.setNoDelay(true);
   upstream.setNoDelay(true);
 
-  const relay = (source, destination) => {
+  const relay = (source, destination, directionSeed) => {
     const queue = [];
     let scheduled = false;
     let writing = false;
     let sourceEnded = false;
+    let previousReleaseAt = 0;
+    const random = seededRandom(directionSeed);
 
     const schedule = () => {
       if (scheduled || writing) return;
@@ -61,7 +76,11 @@ const server = net.createServer((client) => {
     };
 
     source.on("data", (chunk) => {
-      queue.push({ chunk, releaseAt: performance.now() + oneWayDelayMs });
+      const jitter = (random() * 2 - 1) * jitterMs;
+      const delay = Math.max(0, baseOneWayDelayMs + jitter);
+      const releaseAt = Math.max(previousReleaseAt, performance.now() + delay);
+      previousReleaseAt = releaseAt;
+      queue.push({ chunk, releaseAt });
       schedule();
     });
 
@@ -73,8 +92,8 @@ const server = net.createServer((client) => {
     destination.on("error", () => source.destroy());
   };
 
-  relay(client, upstream);
-  relay(upstream, client);
+  relay(client, upstream, connectionSeed);
+  relay(upstream, client, connectionSeed ^ 0x9e37_79b9);
 });
 
 server.on("error", (error) => {
@@ -85,6 +104,7 @@ server.on("error", (error) => {
 server.listen(listenPort, listenHost, () => {
   console.log(
     `WebSocket latency proxy 127.0.0.1:${listenPort} -> ${targetHost}:${targetPort}; ` +
-      `fixed ${oneWayDelayMs} ms each direction (RTT target ${rttMs} ms; jitter/loss 0)`,
+    `base ${baseOneWayDelayMs} ms each direction (RTT target ${rttMs} ms; ` +
+      `per-direction jitter ±${jitterMs} ms, seed ${seed}; no packet loss)`,
   );
 });

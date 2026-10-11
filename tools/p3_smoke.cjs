@@ -78,6 +78,13 @@ async function launchBrowser({ port, url, profile }) {
     `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`, 'about:blank',
   ], { stdio: 'ignore' });
   const endpoint = `http://127.0.0.1:${port}`;
+  const browserVersion = await waitFor(async () => {
+    try {
+      return await fetchJson(`${endpoint}/json/version`);
+    } catch {
+      return false;
+    }
+  }, `Chrome DevTools version ${port}`);
   let target;
   await waitFor(async () => {
     try {
@@ -92,6 +99,7 @@ async function launchBrowser({ port, url, profile }) {
   const client = {
     port,
     browser,
+    browserVersion,
     cdp,
     seat: null,
     welcome: null,
@@ -172,6 +180,74 @@ async function sendKey(client, character) {
   await client.cdp.command('Input.dispatchKeyEvent', { type: 'keyUp', ...common });
 }
 
+async function holdKey(client, key, durationMs) {
+  await client.cdp.command('Page.bringToFront');
+  const code = key === ' ' ? 'Space' : `Key${key.toUpperCase()}`;
+  const keyCode = key === ' ' ? 32 : key.toUpperCase().charCodeAt(0);
+  const common = {
+    key: key === ' ' ? ' ' : key.toLowerCase(),
+    code,
+    windowsVirtualKeyCode: keyCode,
+    nativeVirtualKeyCode: keyCode,
+  };
+  await client.cdp.command('Input.dispatchKeyEvent', { type: 'keyDown', ...common });
+  await sleep(durationMs);
+  await client.cdp.command('Input.dispatchKeyEvent', { type: 'keyUp', ...common });
+}
+
+async function sendFunctionKey(client, key, virtualKey) {
+  await client.cdp.command('Page.bringToFront');
+  const common = { key, code: key, windowsVirtualKeyCode: virtualKey, nativeVirtualKeyCode: virtualKey };
+  await client.cdp.command('Input.dispatchKeyEvent', { type: 'keyDown', ...common });
+  await sleep(40);
+  await client.cdp.command('Input.dispatchKeyEvent', { type: 'keyUp', ...common });
+}
+
+async function browserDiagnostics(client) {
+  const result = await client.cdp.command('Runtime.evaluate', {
+    expression: 'document.getElementById("network-diagnostics")?.textContent',
+    returnByValue: true,
+  });
+  const text = result.result?.value;
+  if (!text) return null;
+  try { return JSON.parse(text); } catch { return null; }
+}
+
+async function measureProxyRtt(address, sampleCount = 30) {
+  const socket = new WebSocket(address);
+  await new Promise((resolve, reject) => {
+    socket.once('open', resolve);
+    socket.once('error', reject);
+  });
+  await waitFor(() => socket.readyState === WebSocket.OPEN, 'RTT probe connection');
+  const samples = [];
+  for (let index = 0; index < sampleCount; index += 1) {
+    const start = performance.now();
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('RTT ping timed out')), 5000);
+      socket.once('pong', () => {
+        clearTimeout(timer);
+        samples.push(performance.now() - start);
+        resolve();
+      });
+      socket.ping(Buffer.from(String(index)));
+    });
+  }
+  socket.close();
+  const sorted = [...samples].sort((left, right) => left - right);
+  const percentile = (rank) => sorted[Math.min(sorted.length - 1,
+    Math.ceil(sorted.length * rank) - 1)];
+  return {
+    samples: samples.length,
+    min_ms: sorted[0],
+    p50_ms: percentile(0.50),
+    p95_ms: percentile(0.95),
+    p99_ms: percentile(0.99),
+    max_ms: sorted.at(-1),
+    sample_ms: samples,
+  };
+}
+
 async function chooseSeat(client, seat) {
   const buttonId = seat === 'rider' ? 'choose-rider' : 'choose-gunner';
   await client.cdp.command('Runtime.evaluate', {
@@ -248,7 +324,11 @@ async function pageDebug(client) {
         pointer_locked: document.pointerLockElement !== null,
         canvas: canvas && { width: canvas.width, height: canvas.height,
           rect: rect && { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
-          webgl2: !!gl, version: gl?.getParameter(gl.VERSION) },
+          webgl2: !!gl, version: gl?.getParameter(gl.VERSION),
+          renderer: (() => {
+            const ext = gl?.getExtension('WEBGL_debug_renderer_info');
+            return ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : null;
+          })() },
       };
     })()`,
     returnByValue: true,
@@ -364,21 +444,34 @@ function matchingEvent(rider, gunner, type, predicate = () => true) {
 
 (async () => {
   const root = path.resolve(__dirname, '..');
-  const artifactDir = path.join(root, 'docs/verification/p3');
+  const artifactDir = process.env.P3_ARTIFACT_DIR || path.join(root, 'docs/verification/p3');
+  const reportPath = process.env.P3_REPORT || path.join(artifactDir, 'smoke-report.json');
+  const rttMs = Number(process.env.P3_RTT_MS || 100);
+  const jitterMs = Number(process.env.P3_JITTER_MS || 0);
+  const seed = Number(process.env.P3_SEED || 1);
+  const proxyPort = Number(process.env.P3_PROXY_PORT || 3102);
+  const siteUrl = process.env.P3_SITE_URL || 'http://127.0.0.1:8080/';
   fs.mkdirSync(artifactDir, { recursive: true });
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'riverside-p3-'));
-  const proxy = spawn('node', [path.join(root, 'tools/ws_latency_proxy.js'), '--rtt-ms', '100', '--listen-port', '3102'], { stdio: 'ignore' });
+  const proxy = spawn(process.execPath, [path.join(root, 'tools/ws_latency_proxy.js'),
+    '--rtt-ms', String(rttMs), '--jitter-ms', String(jitterMs), '--seed', String(seed),
+    '--listen-port', String(proxyPort)], { stdio: 'ignore' });
   let rider, gunner, solo, dualRider, dualGunner;
   const report = {
-    fixed_rtt_ms: 100,
-    one_way_delay_ms: 50,
+    fixed_rtt_ms: rttMs,
+    base_one_way_delay_ms: rttMs / 2,
+    per_direction_jitter_ms: jitterMs,
+    jitter_seed: seed,
     lock_attempts: [],
     shots: [],
   };
   try {
     await sleep(500);
-    const serverUrl = 'server=ws%3A%2F%2F127.0.0.1%3A3102%2Fws';
-    const createUrl = `http://127.0.0.1:8080/?${serverUrl}&create=1`;
+    report.measured_proxy_rtt = await measureProxyRtt(
+      `ws://127.0.0.1:${proxyPort}/ws?solo=1`,
+    );
+    const serverUrl = `server=${encodeURIComponent(`ws://127.0.0.1:${proxyPort}/ws`)}`;
+    const createUrl = `${siteUrl}?${serverUrl}&create=1`;
     const firstPlayer = await launchBrowser({ port: 9232, url: createUrl, profile: path.join(tempRoot, 'first-player') });
     const displayedInviteUrl = await waitFor(async () => firstPlayer.cdp.command('Runtime.evaluate', {
       expression: 'document.getElementById("invite-url")?.value',
@@ -387,7 +480,7 @@ function matchingEvent(rider, gunner, type, predicate = () => true) {
     if (!displayedInviteUrl?.includes(`room=${firstPlayer.welcome.room_code}`)) {
       throw new Error(`Invite URL did not include the room code: ${displayedInviteUrl}`);
     }
-    const joinUrl = `http://127.0.0.1:8080/?${serverUrl}&room=${firstPlayer.welcome.room_code}`;
+    const joinUrl = `${siteUrl}?${serverUrl}&room=${firstPlayer.welcome.room_code}`;
     const secondPlayer = await launchBrowser({ port: 9233, url: joinUrl, profile: path.join(tempRoot, 'second-player') });
     rider = firstPlayer;
     gunner = secondPlayer;
@@ -547,15 +640,78 @@ function matchingEvent(rider, gunner, type, predicate = () => true) {
       helicopter_health: rider.latest.helicopter_health,
       ammo: rider.latest.gunner_ammo,
     };
+    report.rider_controls = [];
+    for (const key of ['a', 'd', ' ']) {
+      const startedAt = performance.now();
+      await holdKey(rider, key, 650);
+      report.rider_controls.push({ key: key === ' ' ? 'space_brake' : key, held_ms: 650,
+        resulting_tick: rider.latest?.tick, elapsed_ms: performance.now() - startedAt });
+    }
     await mouseUp(rider, 'left');
     await mouseUp(gunner, 'right');
+    await sendFunctionKey(rider, 'F3', 114);
+    await sendFunctionKey(gunner, 'F3', 114);
+    await rider.cdp.command('Page.bringToFront');
+    report.network_diagnostics = await waitFor(async () => {
+      const riderMetrics = await browserDiagnostics(rider);
+      const gunnerMetrics = await browserDiagnostics(gunner);
+      if (riderMetrics && gunnerMetrics) return { rider: riderMetrics, gunner: gunnerMetrics };
+      return false;
+    }, 'diagnostic panel on both browsers');
+    report.ack_backlog_samples = [];
+    let consecutiveEmptyAckSamples = 0;
+    const ackDeadline = Date.now() + 10000;
+    while (Date.now() < ackDeadline && consecutiveEmptyAckSamples < 3) {
+      const metrics = await browserDiagnostics(rider);
+      if (metrics) {
+        report.network_diagnostics.rider = metrics;
+        report.ack_backlog_samples.push({
+          elapsed_ms: 10000 - (ackDeadline - Date.now()),
+          pending_inputs: metrics.pending_rider_inputs,
+          last_applied_sequence: metrics.last_applied_rider_sequence,
+          server_tick: metrics.server_tick,
+          client_tick: metrics.client_tick,
+        });
+        consecutiveEmptyAckSamples = metrics.pending_rider_inputs === 0
+          ? consecutiveEmptyAckSamples + 1 : 0;
+      }
+      if (consecutiveEmptyAckSamples < 3) await sleep(500);
+    }
+    report.ack_backlog = {
+      drained: consecutiveEmptyAckSamples >= 3,
+      min_pending_inputs: Math.min(...report.ack_backlog_samples.map((item) => item.pending_inputs)),
+      max_pending_inputs: Math.max(...report.ack_backlog_samples.map((item) => item.pending_inputs)),
+      consecutive_empty_samples: consecutiveEmptyAckSamples,
+    };
+    const wrapAngle = (angle) => ((angle + Math.PI) % (2 * Math.PI) + 2 * Math.PI)
+      % (2 * Math.PI) - Math.PI;
+    report.shared_tick_consistency = (() => {
+      const errors = [];
+      for (const [tick, riderSnapshot] of rider.byTick) {
+        const gunnerSnapshot = gunner.byTick.get(tick);
+        if (!gunnerSnapshot) continue;
+        errors.push({
+          tick,
+          position_error_m: Math.hypot(riderSnapshot.bike.x - gunnerSnapshot.bike.x,
+            riderSnapshot.bike.z - gunnerSnapshot.bike.z),
+          yaw_error_deg: Math.abs(wrapAngle(riderSnapshot.bike.yaw - gunnerSnapshot.bike.yaw))
+            * 180 / Math.PI,
+        });
+      }
+      return {
+        compared_ticks: errors.length,
+        max_position_error_m: Math.max(0, ...errors.map((item) => item.position_error_m)),
+        max_yaw_error_deg: Math.max(0, ...errors.map((item) => item.yaw_error_deg)),
+        samples: errors.slice(-12),
+      };
+    })();
     await dispose(rider); rider = null;
     await dispose(gunner); gunner = null;
     await sleep(400);
 
     solo = await launchBrowser({
       port: 9234,
-      url: 'http://127.0.0.1:8080/?solo=1&server=ws%3A%2F%2F127.0.0.1%3A3102%2Fws',
+      url: `${siteUrl}?solo=1&${serverUrl}`,
       profile: path.join(tempRoot, 'solo'),
     });
     if (!solo.welcome.solo_mode || solo.seat !== 'rider') throw new Error('Solo mode did not claim both seats');
@@ -593,8 +749,28 @@ function matchingEvent(rider, gunner, type, predicate = () => true) {
     report.canvas_debug = {
       solo: await pageDebug(solo),
     };
-    fs.writeFileSync(path.join(artifactDir, 'smoke-report.json'), `${JSON.stringify(report, null, 2)}\n`);
+    report.environment = {
+      browser: dualRider.browserVersion.Browser,
+      user_agent: dualRider.browserVersion['User-Agent'],
+      platform: process.platform,
+      injected_rtt_ms: rttMs,
+      injected_jitter_per_direction_ms: jitterMs,
+      jitter_seed: seed,
+      packet_loss: 'not injected; TCP stream proxy preserves byte delivery',
+      webgl_renderer: report.canvas_debug.solo?.canvas?.renderer,
+    };
+    report.checks = {
+      rider_ack_backlog_drained: report.ack_backlog.drained,
+      no_history_misses: report.network_diagnostics.rider.history_miss_count === 0,
+      same_tick_position_below_2cm: report.shared_tick_consistency.max_position_error_m < 0.02,
+      same_tick_yaw_consistent: report.shared_tick_consistency.max_yaw_error_deg < 1,
+      solo_role_switch_kept_match_running: report.solo.phase === 'running'
+        && report.solo.seat_after_switch === 'gunner',
+      no_browser_errors: Object.values(report.client_errors).flat().length === 0,
+    };
+    fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
     console.log(JSON.stringify(report, null, 2));
+    if (Object.values(report.checks).some((passed) => !passed)) process.exitCode = 1;
   } catch (error) {
     report.runtime_errors = {
       rider: rider?.exceptions,

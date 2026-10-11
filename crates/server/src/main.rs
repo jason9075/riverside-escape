@@ -36,7 +36,134 @@ use tokio::{net::TcpListener, runtime::Builder, sync::broadcast};
 #[derive(Resource, Clone)]
 struct ServerRuntime {
     rooms: Arc<Mutex<RoomDirectory>>,
+    metrics: Arc<Mutex<ServerMetrics>>,
     dev_solo_enabled: bool,
+}
+
+const METRICS_TICK_SAMPLE_CAPACITY: usize = 36_000;
+const METRICS_SNAPSHOT_SAMPLE_CAPACITY: usize = 50_000;
+const CLIENT_INPUT_STALE_TIMEOUT: Duration = Duration::from_millis(300);
+
+struct ServerMetrics {
+    started_at: Instant,
+    tick_count: u64,
+    tick_duration_us_samples: VecDeque<u64>,
+    snapshot_count: u64,
+    snapshot_payload_bytes_total: u64,
+    snapshot_payload_bytes_samples: VecDeque<u64>,
+    room_count: usize,
+    connected_sessions: usize,
+    reserved_sessions: usize,
+    active_projectiles: usize,
+}
+
+impl ServerMetrics {
+    fn new() -> Self {
+        Self {
+            started_at: Instant::now(),
+            tick_count: 0,
+            tick_duration_us_samples: VecDeque::with_capacity(METRICS_TICK_SAMPLE_CAPACITY),
+            snapshot_count: 0,
+            snapshot_payload_bytes_total: 0,
+            snapshot_payload_bytes_samples: VecDeque::with_capacity(
+                METRICS_SNAPSHOT_SAMPLE_CAPACITY,
+            ),
+            room_count: 0,
+            connected_sessions: 0,
+            reserved_sessions: 0,
+            active_projectiles: 0,
+        }
+    }
+
+    fn record_tick(
+        &mut self,
+        duration: Duration,
+        room_count: usize,
+        connected_sessions: usize,
+        reserved_sessions: usize,
+        active_projectiles: usize,
+    ) {
+        self.tick_count = self.tick_count.saturating_add(1);
+        push_bounded(
+            &mut self.tick_duration_us_samples,
+            duration.as_micros().min(u128::from(u64::MAX)) as u64,
+            METRICS_TICK_SAMPLE_CAPACITY,
+        );
+        self.room_count = room_count;
+        self.connected_sessions = connected_sessions;
+        self.reserved_sessions = reserved_sessions;
+        self.active_projectiles = active_projectiles;
+    }
+
+    fn record_snapshot_send(&mut self, payload_bytes: usize) {
+        self.snapshot_count = self.snapshot_count.saturating_add(1);
+        let payload_bytes = payload_bytes as u64;
+        self.snapshot_payload_bytes_total = self
+            .snapshot_payload_bytes_total
+            .saturating_add(payload_bytes);
+        push_bounded(
+            &mut self.snapshot_payload_bytes_samples,
+            payload_bytes,
+            METRICS_SNAPSHOT_SAMPLE_CAPACITY,
+        );
+    }
+
+    fn to_json(&self) -> serde_json::Value {
+        let uptime_seconds = self.started_at.elapsed().as_secs_f64();
+        serde_json::json!({
+            "uptime_seconds": uptime_seconds,
+            "tick_count": self.tick_count,
+            "tick_duration_us": {
+                "p50": percentile_u64(&self.tick_duration_us_samples, 0.50),
+                "p95": percentile_u64(&self.tick_duration_us_samples, 0.95),
+                "p99": percentile_u64(&self.tick_duration_us_samples, 0.99),
+                "sample_count": self.tick_duration_us_samples.len(),
+                "samples": self.tick_duration_us_samples,
+            },
+            "snapshot_count": self.snapshot_count,
+            "snapshot_payload_bytes_total": self.snapshot_payload_bytes_total,
+            "snapshot_payload_bytes_per_second": if uptime_seconds > 0.0 {
+                self.snapshot_payload_bytes_total as f64 / uptime_seconds
+            } else {
+                0.0
+            },
+            "snapshot_send_rate_hz": if uptime_seconds > 0.0 {
+                self.snapshot_count as f64 / uptime_seconds
+            } else {
+                0.0
+            },
+            "snapshot_payload_bytes": {
+                "p50": percentile_u64(&self.snapshot_payload_bytes_samples, 0.50),
+                "p95": percentile_u64(&self.snapshot_payload_bytes_samples, 0.95),
+                "p99": percentile_u64(&self.snapshot_payload_bytes_samples, 0.99),
+                "sample_count": self.snapshot_payload_bytes_samples.len(),
+                "samples": self.snapshot_payload_bytes_samples,
+            },
+            "room_count": self.room_count,
+            "connected_sessions": self.connected_sessions,
+            "reserved_sessions": self.reserved_sessions,
+            "active_projectiles": self.active_projectiles,
+        })
+    }
+}
+
+fn push_bounded(samples: &mut VecDeque<u64>, sample: u64, capacity: usize) {
+    if samples.len() == capacity {
+        samples.pop_front();
+    }
+    samples.push_back(sample);
+}
+
+fn percentile_u64(samples: &VecDeque<u64>, percentile: f64) -> Option<u64> {
+    if samples.is_empty() {
+        return None;
+    }
+    let mut sorted = samples.iter().copied().collect::<Vec<_>>();
+    sorted.sort_unstable();
+    let index = ((sorted.len() as f64 * percentile).ceil() as usize)
+        .saturating_sub(1)
+        .min(sorted.len() - 1);
+    sorted.get(index).copied()
 }
 
 struct Room {
@@ -1188,13 +1315,13 @@ impl Room {
 
         if self.phase == GamePhase::Running {
             if self.last_rider_input_at.is_some_and(|last_input| {
-                now.duration_since(last_input) > Duration::from_millis(200)
+                now.duration_since(last_input) > CLIENT_INPUT_STALE_TIMEOUT
             }) {
                 self.rider_input = RiderInput::default();
                 self.last_rider_input_at = None;
             }
             if self.last_gunner_input_at.is_some_and(|last_input| {
-                now.duration_since(last_input) > Duration::from_millis(200)
+                now.duration_since(last_input) > CLIENT_INPUT_STALE_TIMEOUT
             }) {
                 self.gunner_input = GunnerInput::default();
                 self.last_gunner_input_at = None;
@@ -1853,6 +1980,7 @@ fn interpolate_position(from: WorldPosition, to: WorldPosition, amount: f32) -> 
 fn main() {
     let runtime = ServerRuntime {
         rooms: Arc::new(Mutex::new(RoomDirectory::default())),
+        metrics: Arc::new(Mutex::new(ServerMetrics::new())),
         dev_solo_enabled: std::env::var("RIVERSIDE_DEV_SOLO").is_ok_and(|value| value == "1"),
     };
 
@@ -1899,10 +2027,20 @@ async fn run_http(runtime: ServerRuntime) {
     let app = Router::new()
         .route("/ws", get(websocket_upgrade))
         .route("/health", get(|| async { "ok" }))
+        .route("/metrics", get(server_metrics))
         .with_state(runtime);
     if let Err(error) = axum::serve(listener, app).await {
         eprintln!("WebSocket server stopped: {error}");
     }
+}
+
+async fn server_metrics(State(runtime): State<ServerRuntime>) -> axum::Json<serde_json::Value> {
+    let metrics = runtime
+        .metrics
+        .lock()
+        .map(|metrics| metrics.to_json())
+        .unwrap_or_else(|_| serde_json::json!({"error": "metrics lock poisoned"}));
+    axum::Json(metrics)
 }
 
 async fn websocket_upgrade(
@@ -2111,8 +2249,12 @@ async fn handle_socket(
                 };
                 let encoded = serde_json::to_string(&ServerMessage::Snapshot(Box::new(snapshot)))
                     .expect("serializing room snapshot");
+                let payload_bytes = encoded.len();
                 if sender.send(axum::extract::ws::Message::Text(encoded.into())).await.is_err() {
                     break;
+                }
+                if let Ok(mut metrics) = runtime.metrics.lock() {
+                    metrics.record_snapshot_send(payload_bytes);
                 }
             }
             notice = notices.recv() => {
@@ -2223,6 +2365,7 @@ fn disconnect(entry: &RoomEntry, player_id: u64) {
 }
 
 fn tick_rooms(runtime: Res<ServerRuntime>) {
+    let tick_started_at = Instant::now();
     let now = Instant::now();
     let entries = match runtime.rooms.lock() {
         Ok(mut rooms) => {
@@ -2234,9 +2377,24 @@ fn tick_rooms(runtime: Res<ServerRuntime>) {
             return;
         }
     };
-    for entry in entries {
+    let mut connected_sessions = 0;
+    let mut reserved_sessions = 0;
+    let mut active_projectiles = 0;
+    for entry in &entries {
         let (snapshot, notices) = match entry.room.lock() {
             Ok(mut room) => {
+                connected_sessions += room
+                    .member_sessions
+                    .values()
+                    .filter(|member| member.connected)
+                    .count();
+                reserved_sessions += room
+                    .member_sessions
+                    .values()
+                    .filter(|member| member.reserved_until.is_some())
+                    .count();
+                active_projectiles += if room.player_missile.is_some() { 1 } else { 0 }
+                    + if room.rocket.is_some() { 1 } else { 0 };
                 let snapshot = room.advance_tick(now);
                 (snapshot, room.take_notices())
             }
@@ -2245,10 +2403,19 @@ fn tick_rooms(runtime: Res<ServerRuntime>) {
                 continue;
             }
         };
-        publish_room_notices(&entry, notices);
+        publish_room_notices(entry, notices);
         if let Some(snapshot) = snapshot {
             let _ = entry.snapshots.send(snapshot);
         }
+    }
+    if let Ok(mut metrics) = runtime.metrics.lock() {
+        metrics.record_tick(
+            tick_started_at.elapsed(),
+            entries.len(),
+            connected_sessions,
+            reserved_sessions,
+            active_projectiles,
+        );
     }
 }
 
@@ -2869,6 +3036,26 @@ mod tests {
         assert!(input_tick_is_valid(1_000, 1_003));
         assert!(!input_tick_is_valid(1_000, 699));
         assert!(!input_tick_is_valid(1_000, 1_004));
+    }
+
+    #[test]
+    fn short_input_jitter_is_tolerated_then_stale_controls_clear() {
+        let now = Instant::now();
+        let mut room = running_room();
+        room.rider_input.pedal_held = true;
+        room.last_rider_input_at = Some(now);
+        room.gunner_input.aim_held = true;
+        room.last_gunner_input_at = Some(now);
+        room.gunner_lock_progress_ticks = 45;
+
+        room.advance_tick(now + Duration::from_millis(250));
+        assert!(room.rider_input.pedal_held);
+        assert!(room.gunner_input.aim_held);
+
+        room.advance_tick(now + Duration::from_millis(301));
+        assert_eq!(room.rider_input, RiderInput::default());
+        assert_eq!(room.gunner_input, GunnerInput::default());
+        assert_eq!(room.gunner_lock_progress_ticks, 0);
     }
 
     #[test]

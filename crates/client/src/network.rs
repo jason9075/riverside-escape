@@ -316,6 +316,14 @@ pub fn flush_outgoing(network: Res<NetworkClient>) {
     let _ = network;
 }
 
+pub fn refresh_diagnostics(network: Res<NetworkClient>, session: Res<GameSession>) {
+    #[cfg(target_arch = "wasm32")]
+    browser_socket::render_diagnostics(&network, &session);
+
+    #[cfg(not(target_arch = "wasm32"))]
+    let _ = (network, session);
+}
+
 #[cfg(target_arch = "wasm32")]
 mod browser_socket {
     use std::{
@@ -942,6 +950,42 @@ mod browser_socket {
         if network.seat_swap_status.is_some() {
             set_text(&document, "lobby-status", &swap_status);
         }
+
+        render_diagnostics(network, session);
+    }
+
+    pub(super) fn render_diagnostics(network: &NetworkClient, session: &GameSession) {
+        let Some(document) = document() else {
+            return;
+        };
+        let show_diagnostics = session.show_diagnostics && network.connected;
+        set_visible(&document, "network-diagnostics", show_diagnostics);
+        if !show_diagnostics {
+            return;
+        }
+        let diagnostics = serde_json::json!({
+            "server_tick": session.server_tick,
+            "client_tick": session.client_tick,
+            "last_applied_rider_sequence": session.last_applied_rider_sequence,
+            "pending_rider_inputs": session.pending_rider_inputs.len(),
+            "max_pending_rider_inputs": session.max_pending_rider_inputs,
+            "snapshot_gap_m": session.snapshot_gap_m,
+            "max_snapshot_gap_m": session.max_snapshot_gap_m,
+            "same_tick_error_m": session.same_tick_error_m,
+            "max_same_tick_error_m": session.max_same_tick_error_m,
+            "same_tick_yaw_error_deg": session.same_tick_yaw_error_deg,
+            "max_same_tick_yaw_error_deg": session.max_same_tick_yaw_error_deg,
+            "replayed_unacknowledged_inputs_last_snapshot": session.replayed_unacknowledged_inputs_last_snapshot,
+            "history_miss_count": session.history_miss_count,
+            "reconcile_bike_step_m": session.reconcile_bike_step_m,
+            "max_reconcile_bike_step_m": session.max_reconcile_bike_step_m,
+            "gunner_interpolation_lag_ms": session.gunner_interpolation_lag_ms,
+            "max_update_delta_ms": session.max_update_delta_ms,
+            "gunner_lock_progress_ticks": session.gunner_lock_progress_ticks,
+            "gunner_locked": session.gunner_locked,
+            "phase": format!("{:?}", session.phase),
+        });
+        set_text(&document, "network-diagnostics", &diagnostics.to_string());
     }
 
     pub(super) fn ready_state() -> Option<u16> {

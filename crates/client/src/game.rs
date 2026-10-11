@@ -30,6 +30,18 @@ const GUNNER_SEAT: Vec3 = Vec3::new(0.0, 1.12, 0.94);
 const GUNNER_CAMERA_AIM: Vec3 = Vec3::new(0.0, 0.72, -0.09);
 const INPUT_SEND_INTERVAL_SECS: f64 = 1.0 / riverside_common::SNAPSHOT_HZ as f64;
 
+fn should_send_input<T: Copy + PartialEq>(
+    last_sent: &mut Option<T>,
+    input: T,
+    active: bool,
+    interval_elapsed: bool,
+) -> bool {
+    let changed = last_sent.is_none_or(|previous| previous != input);
+    let should_send = (changed && (active || last_sent.is_some())) || (active && interval_elapsed);
+    *last_sent = Some(input);
+    should_send
+}
+
 #[derive(Resource)]
 pub struct GameSession {
     pub bike: BikeState,
@@ -50,6 +62,8 @@ pub struct GameSession {
     pub prediction_initialized: bool,
     prediction_accumulator: f64,
     input_send_accumulator: f64,
+    last_sent_rider_input: Option<RiderInput>,
+    last_sent_gunner_input: Option<GunnerInput>,
     render_offset: BikeRenderOffset,
     pub snapshot_interpolator: SnapshotInterpolator,
     snapshot_received_this_frame: bool,
@@ -133,6 +147,8 @@ impl Default for GameSession {
             prediction_initialized: false,
             prediction_accumulator: 0.0,
             input_send_accumulator: 0.0,
+            last_sent_rider_input: None,
+            last_sent_gunner_input: None,
             render_offset: BikeRenderOffset::default(),
             snapshot_interpolator: SnapshotInterpolator::default(),
             snapshot_received_this_frame: false,
@@ -198,6 +214,8 @@ impl GameSession {
         self.local_seat = seat;
         self.pending_rider_inputs.clear();
         self.pending_authoritative_snapshots.clear();
+        self.last_sent_rider_input = None;
+        self.last_sent_gunner_input = None;
         self.predicted_lock_progress_ticks = 0;
         self.predicted_lock_outside_secs = 0.0;
         if seat == SeatKind::Rider && self.prediction_initialized {
@@ -234,6 +252,8 @@ impl GameSession {
         self.prediction_initialized = true;
         self.prediction_accumulator = 0.0;
         self.input_send_accumulator = 0.0;
+        self.last_sent_rider_input = None;
+        self.last_sent_gunner_input = None;
         self.render_offset = BikeRenderOffset::default();
         self.snapshot_interpolator.clear();
         self.snapshot_interpolator.push(tick, bike);
@@ -1123,14 +1143,23 @@ pub fn simulate_bike(
 
     if network.connected {
         session.input_send_accumulator += f64::from(delta_secs);
-        while session.input_send_accumulator + 1.0e-10 >= INPUT_SEND_INTERVAL_SECS {
-            session.input_send_accumulator -= INPUT_SEND_INTERVAL_SECS;
-            session.input_sequence = session.input_sequence.wrapping_add(1).max(1);
-            let sequence = session.input_sequence;
-            let tick = session.client_tick;
-            match session.local_seat {
-                SeatKind::Rider => {
-                    let input = session.rider_input;
+        let interval_elapsed = session.input_send_accumulator + 1.0e-10 >= INPUT_SEND_INTERVAL_SECS;
+        if interval_elapsed {
+            session.input_send_accumulator %= INPUT_SEND_INTERVAL_SECS;
+        }
+        match session.local_seat {
+            SeatKind::Rider => {
+                let input = session.rider_input;
+                let active = input.pedal_held || input.brake_held || input.steer != 0.0;
+                if should_send_input(
+                    &mut session.last_sent_rider_input,
+                    input,
+                    active,
+                    interval_elapsed,
+                ) {
+                    session.input_sequence = session.input_sequence.wrapping_add(1).max(1);
+                    let sequence = session.input_sequence;
+                    let tick = session.client_tick;
                     session.pending_rider_inputs.push_back(RiderInputSample {
                         sequence,
                         tick,
@@ -1145,11 +1174,22 @@ pub fn simulate_bike(
                         input,
                     });
                 }
-                SeatKind::Gunner => network.send(ClientMessage::GunnerInput {
-                    sequence,
-                    tick,
-                    input: session.gunner_input,
-                }),
+            }
+            SeatKind::Gunner => {
+                let input = session.gunner_input;
+                if should_send_input(
+                    &mut session.last_sent_gunner_input,
+                    input,
+                    input.aim_held,
+                    interval_elapsed,
+                ) {
+                    session.input_sequence = session.input_sequence.wrapping_add(1).max(1);
+                    network.send(ClientMessage::GunnerInput {
+                        sequence: session.input_sequence,
+                        tick: session.client_tick,
+                        input,
+                    });
+                }
             }
         }
     }
@@ -1796,12 +1836,31 @@ fn shortest_angle_delta(current: f32, target: f32) -> f32 {
 mod tests {
     use super::{
         GameSession, bike_facing_rotation, front_fork_rotation, rider_steer_from_keys,
-        update_combat_visuals, update_hud,
+        should_send_input, update_combat_visuals, update_hud,
     };
     use bevy::prelude::{App, Time, Update, Vec3};
-    use riverside_common::{CombatEvent, CombatEventKind, WorldPosition};
+    use riverside_common::{CombatEvent, CombatEventKind, RiderInput, WorldPosition};
 
     use crate::network::NetworkClient;
+
+    #[test]
+    fn input_sender_skips_idle_repeats_coalesces_stalls_and_sends_releases() {
+        let idle = RiderInput::default();
+        let pedal = RiderInput {
+            pedal_held: true,
+            ..idle
+        };
+        let mut last_sent = None;
+
+        assert!(!should_send_input(&mut last_sent, idle, false, false));
+        assert!(!should_send_input(&mut last_sent, idle, false, true));
+        assert!(should_send_input(&mut last_sent, pedal, true, false));
+        assert!(!should_send_input(&mut last_sent, pedal, true, false));
+        assert!(should_send_input(&mut last_sent, pedal, true, true));
+        assert!(should_send_input(&mut last_sent, idle, false, false));
+        assert!(!should_send_input(&mut last_sent, idle, false, true));
+        assert!(should_send_input(&mut last_sent, pedal, true, false));
+    }
 
     #[test]
     fn rider_keys_and_rendered_bike_turn_left_on_a_and_right_on_d() {
