@@ -114,6 +114,7 @@ async function launchBrowser({ port, url, profile }) {
         client.welcome = message.payload;
         client.seat = message.payload.seat;
       }
+      if (message.type === 'seat_assigned') client.seat = message.payload.seat;
       if (message.type === 'seat_changed') client.seat = message.payload.seat;
       if (message.type === 'snapshot') {
         client.latest = message.payload;
@@ -179,6 +180,14 @@ async function sendKey(client, character) {
   await client.cdp.command('Input.dispatchKeyEvent', { type: 'char', text: character, ...common });
   await sleep(40);
   await client.cdp.command('Input.dispatchKeyEvent', { type: 'keyUp', ...common });
+}
+
+async function chooseSeat(client, seat) {
+  const buttonId = seat === 'rider' ? 'choose-rider' : 'choose-gunner';
+  await client.cdp.command('Runtime.evaluate', {
+    expression: `document.getElementById('${buttonId}')?.click(); document.querySelector('canvas')?.focus()`,
+  });
+  await waitFor(() => client.seat === seat, `${seat} seat selection`);
 }
 
 async function sendProtocol(client, message) {
@@ -394,9 +403,13 @@ function sharedEvent(rider, gunner, type, predicate) {
   };
   try {
     await sleep(500);
-    const dualUrl = 'http://127.0.0.1:8080/?server=ws%3A%2F%2F127.0.0.1%3A3104%2Fws';
-    rider = await launchBrowser({ port: 9242, url: dualUrl, profile: path.join(tempRoot, 'rider') });
-    gunner = await launchBrowser({ port: 9243, url: dualUrl, profile: path.join(tempRoot, 'gunner') });
+    const serverUrl = 'server=ws%3A%2F%2F127.0.0.1%3A3104%2Fws';
+    const createUrl = `http://127.0.0.1:8080/?${serverUrl}&create=1`;
+    rider = await launchBrowser({ port: 9242, url: createUrl, profile: path.join(tempRoot, 'rider') });
+    const joinUrl = `http://127.0.0.1:8080/?${serverUrl}&room=${rider.welcome.room_code}`;
+    gunner = await launchBrowser({ port: 9243, url: joinUrl, profile: path.join(tempRoot, 'gunner') });
+    await chooseSeat(rider, 'rider');
+    await chooseSeat(gunner, 'gunner');
     if (rider.seat !== 'rider' || gunner.seat !== 'gunner') throw new Error('Dual seats were not assigned');
     await waitFor(() => rider.latest?.phase === 'ready_check' && gunner.latest?.phase === 'ready_check', 'dual Ready Check');
     await sendKey(rider, 'r');

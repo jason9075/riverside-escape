@@ -1,0 +1,48 @@
+{
+  "generated_at": "2026-10-11T13:12:31.699Z",
+  "server": "127.0.0.1:3112",
+  "max_active_rooms": 4,
+  "room_creations": [
+    {
+      "code": "R00000",
+      "created_by": "first member"
+    },
+    {
+      "code": "R00001",
+      "created_by": "second room host"
+    },
+    {
+      "code": "R00002",
+      "created_by": "third room host"
+    },
+    {
+      "code": "R00003",
+      "created_by": "fourth room host"
+    }
+  ],
+  "role_choices": [
+    {
+      "room": "R00000",
+      "join_order": [
+        "Gunner",
+        "Rider"
+      ]
+    },
+    {
+      "room": "R00001",
+      "concurrent_claim": "one winner, loser chose Gunner"
+    }
+  ],
+  "checks": {
+    "unassigned_ready_ignored": true,
+    "room_isolation": true,
+    "room_ticks": {
+      "room_a_start": 12,
+      "room_a_countdown": 15,
+      "room_b_initial": 6,
+      "room_b_while_a_counted_down": 21
+    },
+    "room_capacity_two": true,
+    "four_room_limit": true
+  }
+}

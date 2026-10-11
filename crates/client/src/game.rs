@@ -953,7 +953,7 @@ pub fn capture_input(
         return;
     }
 
-    if keyboard.just_pressed(KeyCode::KeyV) {
+    if keyboard.just_pressed(KeyCode::KeyV) && (network.solo_mode || !network.connected) {
         let next_seat = match session.local_seat {
             SeatKind::Rider => SeatKind::Gunner,
             SeatKind::Gunner => SeatKind::Rider,
@@ -965,7 +965,10 @@ pub fn capture_input(
         }
     }
 
-    if keyboard.just_pressed(KeyCode::KeyR) && session.phase != GamePhase::Running {
+    if keyboard.just_pressed(KeyCode::KeyR)
+        && session.phase != GamePhase::Running
+        && (network.solo_mode || (network.connected && network.seat.is_some()))
+    {
         if network.solo_mode {
             network.send(ClientMessage::ForceStartSolo);
         } else if network.connected {
@@ -977,6 +980,18 @@ pub fn capture_input(
     }
     if keyboard.just_pressed(KeyCode::F3) {
         session.show_diagnostics = !session.show_diagnostics;
+    }
+
+    if network.connected && network.seat.is_none() {
+        session.rider_input = RiderInput::default();
+        session.gunner_input = GunnerInput::default();
+        session.rider_free_look = false;
+        session.cursor_captured = false;
+        if let Ok(mut cursor) = windows.single_mut() {
+            cursor.grab_mode = CursorGrabMode::None;
+            cursor.visible = true;
+        }
+        return;
     }
 
     if session.local_seat == SeatKind::Rider {

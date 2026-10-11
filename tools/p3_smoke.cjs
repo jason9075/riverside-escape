@@ -125,6 +125,7 @@ async function launchBrowser({ port, url, profile }) {
         client.welcome = message.payload;
         client.seat = message.payload.seat;
       }
+      if (message.type === 'seat_assigned') client.seat = message.payload.seat;
       if (message.type === 'seat_changed') client.seat = message.payload.seat;
       if (message.type === 'snapshot') {
         client.latest = message.payload;
@@ -166,6 +167,14 @@ async function sendKey(client, character) {
   await client.cdp.command('Input.dispatchKeyEvent', { type: 'char', text: character, ...common });
   await sleep(40);
   await client.cdp.command('Input.dispatchKeyEvent', { type: 'keyUp', ...common });
+}
+
+async function chooseSeat(client, seat) {
+  const buttonId = seat === 'rider' ? 'choose-rider' : 'choose-gunner';
+  await client.cdp.command('Runtime.evaluate', {
+    expression: `document.getElementById('${buttonId}')?.click(); document.querySelector('canvas')?.focus()`,
+  });
+  await waitFor(() => client.seat === seat, `${seat} seat selection`);
 }
 
 async function updateMouseTrace(client) {
@@ -365,12 +374,35 @@ function matchingEvent(rider, gunner, type, predicate = () => true) {
   };
   try {
     await sleep(500);
-    const dualUrl = 'http://127.0.0.1:8080/?server=ws%3A%2F%2F127.0.0.1%3A3102%2Fws';
-    rider = await launchBrowser({ port: 9232, url: dualUrl, profile: path.join(tempRoot, 'rider') });
-    gunner = await launchBrowser({ port: 9233, url: dualUrl, profile: path.join(tempRoot, 'gunner') });
+    const serverUrl = 'server=ws%3A%2F%2F127.0.0.1%3A3102%2Fws';
+    const createUrl = `http://127.0.0.1:8080/?${serverUrl}&create=1`;
+    const firstPlayer = await launchBrowser({ port: 9232, url: createUrl, profile: path.join(tempRoot, 'first-player') });
+    const displayedInviteUrl = await waitFor(async () => firstPlayer.cdp.command('Runtime.evaluate', {
+      expression: 'document.getElementById("invite-url")?.value',
+      returnByValue: true,
+    }).then((result) => result.result?.value), 'copyable room invitation');
+    if (!displayedInviteUrl?.includes(`room=${firstPlayer.welcome.room_code}`)) {
+      throw new Error(`Invite URL did not include the room code: ${displayedInviteUrl}`);
+    }
+    const joinUrl = `http://127.0.0.1:8080/?${serverUrl}&room=${firstPlayer.welcome.room_code}`;
+    const secondPlayer = await launchBrowser({ port: 9233, url: joinUrl, profile: path.join(tempRoot, 'second-player') });
+    await chooseSeat(firstPlayer, 'rider');
+    await chooseSeat(secondPlayer, 'gunner');
+    const firstRoleLabel = await waitFor(async () => firstPlayer.cdp.command('Runtime.evaluate', {
+      expression: 'document.getElementById("rider-status")?.textContent',
+      returnByValue: true,
+    }).then((result) => result.result?.value).then((text) => text?.includes('你已選擇') ? text : false),
+    'first member role card update');
+    if (!firstRoleLabel?.includes('你已選擇')) {
+      throw new Error(`The first member did not see their selected role: ${firstRoleLabel}`);
+    }
+    rider = firstPlayer;
+    gunner = secondPlayer;
     dualRider = rider;
     dualGunner = gunner;
     report.dual_welcome = { rider: rider.welcome, gunner: gunner.welcome };
+    report.join_order = ['Rider', 'Gunner'];
+    report.displayed_invite_url = displayedInviteUrl;
     if (rider.seat !== 'rider' || gunner.seat !== 'gunner') throw new Error('Rider/Gunner seats were not assigned');
     await waitFor(() => rider.latest?.phase === 'ready_check' && gunner.latest?.phase === 'ready_check', 'dual Ready Check');
 
@@ -391,21 +423,42 @@ function matchingEvent(rider, gunner, type, predicate = () => true) {
       return state?.pointer_locked ? state : false;
     }, 'Gunner pointer lock', 5000);
 
+    let nextRequestId = 1;
+    report.rejected_attempts = [];
     for (let index = 0; index < 3; index += 1) {
-      const locked = await ensureLocked(gunner, report);
-      if (index === 0) {
-        report.first_server_lock = {
-          tick: locked.tick,
-          progress_ticks: locked.gunner_lock_progress_ticks,
-          locked: locked.gunner_locked,
-          can_fire: locked.gunner_can_fire,
-          target: locked.helicopter.position,
-        };
-      }
       const previousHealth = gunner.latest.helicopter_health;
-      await fireClick(gunner);
-      const accepted = await waitFor(() => matchingEvent(rider, gunner, 'gunner_fire_accepted',
-        (event) => event.kind.request_id === index + 1), `shot ${index + 1} accepted`, 5000);
+      let accepted = false;
+      for (let attempt = 0; attempt < 5 && !accepted; attempt += 1) {
+        const locked = await ensureLocked(gunner, report);
+        if (index === 0 && attempt === 0) {
+          report.first_server_lock = {
+            tick: locked.tick,
+            progress_ticks: locked.gunner_lock_progress_ticks,
+            locked: locked.gunner_locked,
+            can_fire: locked.gunner_can_fire,
+            target: locked.helicopter.position,
+          };
+        }
+        const requestId = nextRequestId;
+        await fireClick(gunner);
+        const outcome = await waitFor(() => matchingEvent(rider, gunner, 'gunner_fire_accepted',
+          (event) => event.kind.request_id === requestId)
+          || matchingEvent(rider, gunner, 'gunner_fire_rejected',
+            (event) => event.kind.request_id === requestId),
+        `shot ${index + 1} attempt ${attempt + 1} response`, 5000);
+        nextRequestId += 1;
+        if (outcome.event.kind.type === 'gunner_fire_accepted') {
+          accepted = outcome;
+        } else {
+          report.rejected_attempts.push({
+            shot: index + 1,
+            request_id: requestId,
+            reason: outcome.event.kind.reason,
+            tick: outcome.event.tick,
+          });
+        }
+      }
+      if (!accepted) throw new Error(`Shot ${index + 1} was rejected five times`);
       const impact = await waitFor(() => matchingEvent(rider, gunner, 'player_missile_impacted',
         (event) => event.attack_id === accepted.event.attack_id && event.kind.hit), `shot ${index + 1} hit`, 5000);
       if (!impact.event.kind.hit || impact.event.kind.helicopter_health !== Math.max(0, previousHealth - 34)) {

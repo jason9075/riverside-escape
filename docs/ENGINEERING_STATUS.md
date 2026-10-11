@@ -86,6 +86,15 @@
 - 修正後 Workspace 共 42 項測試（Client 4、common 10、reconciliation 6、Server 22）；格式檢查、WASM check、workspace Clippy、Server build 與 Trunk build 通過。結果驗證方向與協定行為，不代表實體 GPU 手感或最後平衡。
 - 本修正與瀏覽器證據獨立提交；完成後按最新 [`PRODUCT_PLAN.md`](PRODUCT_PLAN.md) 繼續 P5、P6。
 
+## P5 第一批：房間、邀請與自主選角
+
+- 一般雙人連線改為明確建立房間或以 `R` 邀請碼加入；不帶建立／加入參數時回報需要選擇房間。建立後 Lobby 顯示房間碼、可複製邀請網址及 Rider／Gunner 角色卡，房間成員先以未選角狀態加入。
+- Server 最多保留 4 個公開房間，各房間獨立模擬、輸入權限與快照廣播；沒有成員的空房在 10 分鐘後清除。每房最多兩名成員，未選角者也計入上限。Solo 開發房維持獨立 `D` 代碼空間，不占公開房間額度。
+- 任一成員都可原子選擇空席；以反向加入順序及同時搶同席的測試確認不依房主／加入順序指定角色，佔席不會被搶走。未選角不可 Ready；Ready 可取消，取消倒數會回到 ReadyCheck。
+- 遠端 WebSocket 整合報告 [`room-smoke-report.json`](verification/p5/room-smoke-report.json) 建立 `R00000` 至 `R00003` 四房，確認未選角 Ready 無效、第一位選 Gunner／第二位選 Rider、併發搶 Rider 僅一人成功、第五房被拒、房間成員上限兩人，以及 A 房進入倒數時 B 房仍在 ReadyCheck 且 Tick 持續獨立增加。
+- P3 雙 WASM／固定 100 ms RTT 回歸在本批 UI 與房間連線調整後通過：建立／邀請碼加入、角色卡選角、三發擊落、雙端相同戰鬥事件、重新 Ready、Solo R／V 都正常；報告見 [`P3 smoke report`](verification/p3/smoke-report.json)。
+- 遠端 Rust workspace 對本批 Server／Client 程式通過 46 項測試（Client 4、common 10、reconciliation 6、Server 26）、格式檢查、workspace Clippy、WASM target check、Server build 與 Trunk release build。之後新增的整合工具另通過 `node --check`，並由上述 WebSocket smoke 實際執行。本批刻意只交付公開房間與初次選角；雙方同意交換、Ready／倒數生命週期的完整競態語意、暫停重連與 P6 網路矩陣仍待後續切片完成。
+
 ## 遠端開發與驗證環境
 
 | 項目 | 設定 |

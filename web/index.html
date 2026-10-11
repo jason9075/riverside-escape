@@ -1,10 +1,10 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-Hant">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#10221e" />
-    <title>Riverside Escape</title>
+    <title>河岸逃脫</title>
     <link data-trunk rel="rust" href="../crates/client/Cargo.toml" data-bin="riverside-client" />
     <link data-trunk rel="copy-dir" href="../assets" />
     <style>
@@ -19,6 +19,8 @@
         margin: 0;
         overflow: hidden;
         background: #19342e;
+        color: #f3f3e8;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Noto Sans TC", sans-serif;
       }
 
       body {
@@ -31,10 +33,248 @@
         height: 100%;
         outline: none;
       }
+
+      [hidden] {
+        display: none !important;
+      }
+
+      #lobby-panel {
+        position: fixed;
+        z-index: 10;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        overflow: auto;
+        background: rgb(6 18 15 / 52%);
+        backdrop-filter: blur(5px);
+      }
+
+      .lobby-card {
+        width: min(760px, 100%);
+        padding: clamp(24px, 5vw, 44px);
+        border: 1px solid rgb(223 241 221 / 22%);
+        border-radius: 24px;
+        background: linear-gradient(145deg, rgb(21 48 41 / 97%), rgb(12 29 26 / 97%));
+        box-shadow: 0 24px 90px rgb(0 0 0 / 42%);
+      }
+
+      .eyebrow {
+        margin: 0 0 10px;
+        color: #a9d7ad;
+        font-size: 0.78rem;
+        font-weight: 700;
+        letter-spacing: 0.16em;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: clamp(2rem, 6vw, 3.3rem);
+        line-height: 1.1;
+      }
+
+      .intro,
+      .helper {
+        color: #c2d0c4;
+        line-height: 1.65;
+      }
+
+      .actions,
+      .role-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+        margin-top: 22px;
+      }
+
+      button,
+      .button-link,
+      input {
+        min-height: 48px;
+        border: 1px solid rgb(223 241 221 / 24%);
+        border-radius: 12px;
+        color: inherit;
+        font: inherit;
+      }
+
+      button,
+      .button-link {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 12px 18px;
+        background: #b2e1a7;
+        color: #12261d;
+        cursor: pointer;
+        font-weight: 750;
+        text-align: center;
+        text-decoration: none;
+        transition: transform 120ms ease, background 120ms ease;
+      }
+
+      button:hover:not(:disabled),
+      .button-link:hover {
+        transform: translateY(-1px);
+        background: #c8efbd;
+      }
+
+      button:disabled {
+        cursor: default;
+        opacity: 0.5;
+      }
+
+      .secondary {
+        border-color: rgb(223 241 221 / 34%);
+        background: transparent;
+        color: #eff4e9;
+      }
+
+      form {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 10px;
+        margin-top: 12px;
+      }
+
+      input {
+        width: 100%;
+        padding: 0 14px;
+        background: rgb(3 15 12 / 46%);
+        text-transform: uppercase;
+      }
+
+      label {
+        display: block;
+        margin: 18px 0 7px;
+        color: #d6e5d5;
+        font-size: 0.9rem;
+      }
+
+      #lobby-status {
+        min-height: 24px;
+        margin: 18px 0 8px;
+        color: #f3d58f;
+      }
+
+      .role-card {
+        display: flex;
+        min-height: 176px;
+        flex-direction: column;
+        align-items: flex-start;
+        justify-content: space-between;
+        padding: 20px;
+        background: rgb(228 238 218 / 8%);
+        color: #f4f4e8;
+        text-align: left;
+      }
+
+      .role-card strong {
+        color: #b2e1a7;
+        font-size: 1.35rem;
+      }
+
+      .role-card span {
+        color: #c2d0c4;
+        font-size: 0.95rem;
+        font-weight: 450;
+        line-height: 1.5;
+      }
+
+      .role-card small {
+        color: #f3d58f;
+        font-size: 0.8rem;
+      }
+
+      .room-meta {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 10px 20px;
+        margin-top: 18px;
+      }
+
+      .room-code {
+        color: #b2e1a7;
+        font-size: 1.3rem;
+        font-weight: 800;
+        letter-spacing: 0.12em;
+      }
+
+      #ready-button {
+        width: 100%;
+        margin-top: 22px;
+      }
+
+      @media (max-width: 560px) {
+        #lobby-panel {
+          padding: 12px;
+        }
+
+        .lobby-card {
+          padding: 24px 18px;
+          border-radius: 18px;
+        }
+
+        .actions,
+        .role-grid {
+          grid-template-columns: 1fr;
+        }
+
+        form {
+          grid-template-columns: 1fr;
+        }
+      }
     </style>
   </head>
   <body>
     <canvas id="game-canvas" tabindex="0"></canvas>
+    <main id="lobby-panel">
+      <section id="room-entry" class="lobby-card">
+        <p class="eyebrow">TAIPEI RIVERSIDE CO-OP</p>
+        <h1>河岸逃脫</h1>
+        <p class="intro">一人騎車、一人守住後座。先建立房間，或輸入隊友分享的房間代碼。</p>
+        <div class="actions">
+          <a class="button-link" href="?create=1">建立房間</a>
+          <a class="button-link secondary" href="?solo=1">開發用單人測試</a>
+        </div>
+        <form action="/" method="get">
+          <input id="join-code" name="room" inputmode="text" autocomplete="off" maxlength="6" placeholder="輸入房間代碼" aria-label="輸入房間代碼" />
+          <button type="submit">加入房間</button>
+        </form>
+        <p class="helper">單人測試需由 Server 啟用；按 V 切換角色，按 R 強制準備並開始。</p>
+        <p id="entry-status" role="status" aria-live="polite">建立或加入房間後，選擇角色即可準備。</p>
+      </section>
+
+      <section id="room-lobby" class="lobby-card" hidden>
+        <p class="eyebrow">ROOM LOBBY</p>
+        <h1>選擇你的角色</h1>
+        <div class="room-meta">
+          <span>房間代碼 <strong id="room-code" class="room-code">------</strong></span>
+          <span id="unassigned-count" class="helper">尚未選角玩家：0</span>
+        </div>
+        <div id="invite-field">
+          <label for="invite-url">邀請隊友（可複製這個網址）</label>
+          <input id="invite-url" type="text" readonly aria-label="邀請網址" />
+        </div>
+        <p id="lobby-status" role="status" aria-live="polite">請選擇 Rider 或 Gunner，選角後才能準備。</p>
+        <div id="seat-selection" class="role-grid">
+          <button id="choose-rider" class="role-card" type="button">
+            <strong>Rider · 車手</strong>
+            <span>第三人稱追蹤視角。踩踏前進、煞車並選擇河濱路線。</span>
+            <small id="rider-status">空席，可選擇</small>
+          </button>
+          <button id="choose-gunner" class="role-card" type="button">
+            <strong>Gunner · 射手</strong>
+            <span>第一人稱後座視角。轉動瞄準、鎖定直升機並發射飛彈。</span>
+            <small id="gunner-status">空席，可選擇</small>
+          </button>
+        </div>
+        <p id="solo-mode" class="helper" hidden>開發用單人模式：R 強制開始，V 切換角色。</p>
+        <button id="ready-button" type="button">準備開始</button>
+        <p class="helper">選擇空席後才能準備。正式對局開始後座位固定；開發用單人模式可按 V 切換。</p>
+      </section>
+    </main>
     <script>
       document.addEventListener("contextmenu", (event) => {
         if (event.target.closest("#game-canvas")) event.preventDefault();

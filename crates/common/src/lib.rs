@@ -84,6 +84,15 @@ pub enum SeatKind {
     Gunner,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SeatChoiceRejection {
+    SeatOccupied,
+    MatchLocked,
+    NotRoomMember,
+    SoloUsesRoleSwitch,
+}
+
 impl SeatKind {
     pub const fn label(self) -> &'static str {
         match self {
@@ -171,6 +180,9 @@ pub struct GunnerInput {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
 pub enum ClientMessage {
+    ChooseSeat {
+        seat: SeatKind,
+    },
     SetReady {
         ready: bool,
     },
@@ -199,14 +211,26 @@ pub enum ClientMessage {
 pub enum ServerMessage {
     Welcome {
         player_id: u64,
-        seat: SeatKind,
+        room_code: String,
+        seat: Option<SeatKind>,
         solo_mode: bool,
+    },
+    SeatAssigned {
+        seat: SeatKind,
+    },
+    SeatChoiceRejected {
+        seat: SeatKind,
+        reason: SeatChoiceRejection,
     },
     SeatChanged {
         seat: SeatKind,
     },
     Snapshot(Box<WorldSnapshot>),
     RoomFull,
+    RoomLimitReached,
+    RoomNotFound,
+    RoomSelectionRequired,
+    InvalidRoomCode,
     SoloUnavailable,
 }
 
@@ -438,6 +462,9 @@ pub struct WorldSnapshot {
     pub tick: u64,
     pub phase: GamePhase,
     pub seats: BTreeMap<SeatKind, SeatStatus>,
+    /// Room members that have not selected a Rider or Gunner seat yet.
+    #[serde(default)]
+    pub unassigned_players: u8,
     pub countdown_seconds: Option<u8>,
     pub bike: BikeState,
     #[serde(default)]
