@@ -4643,6 +4643,7 @@ dependencies = [
  "bevy_app",
  "bevy_ecs",
  "futures-util",
+ "getrandom 0.3.4",
  "riverside-common",
  "serde_json",
  "tokio",
