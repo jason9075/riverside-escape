@@ -318,11 +318,21 @@ pub struct AimEvaluation {
     pub obstructed: bool,
 }
 
+/// World-space Gunner origin behind the bike, using the shared gameplay yaw
+/// convention where positive yaw turns toward +X from the starting heading.
+pub fn gunner_aim_origin(bike: BikeState) -> WorldPosition {
+    WorldPosition {
+        x: bike.x - bike.yaw.sin() * GUNNER_AIM_ORIGIN_REAR_M,
+        y: GUNNER_AIM_ORIGIN_HEIGHT_M,
+        z: bike.z + bike.yaw.cos() * GUNNER_AIM_ORIGIN_REAR_M,
+    }
+}
+
 pub fn gunner_aim_direction(bike: BikeState, input: GunnerInput) -> WorldPosition {
     let yaw = bike.yaw + std::f32::consts::PI + input.yaw;
     let pitch_cos = input.pitch.cos();
     WorldPosition {
-        x: -yaw.sin() * pitch_cos,
+        x: yaw.sin() * pitch_cos,
         y: input.pitch.sin(),
         z: -yaw.cos() * pitch_cos,
     }
@@ -333,12 +343,7 @@ pub fn evaluate_gunner_aim(
     input: GunnerInput,
     target: WorldPosition,
 ) -> AimEvaluation {
-    let origin_yaw = bike.yaw + std::f32::consts::PI;
-    let origin = WorldPosition {
-        x: bike.x - origin_yaw.sin() * GUNNER_AIM_ORIGIN_REAR_M,
-        y: GUNNER_AIM_ORIGIN_HEIGHT_M,
-        z: bike.z - origin_yaw.cos() * GUNNER_AIM_ORIGIN_REAR_M,
-    };
+    let origin = gunner_aim_origin(bike);
     let dx = target.x - origin.x;
     let dy = target.y - origin.y;
     let dz = target.z - origin.z;
@@ -518,6 +523,7 @@ impl Default for BikeState {
 
 impl BikeState {
     /// Arcade/kinematic bicycle controller shared by offline preview and the server.
+    /// `steer < 0` is left and `steer > 0` is right; positive yaw turns right.
     pub fn step(&mut self, input: RiderInput, dt: f32) -> bool {
         let dt = dt.clamp(0.0, 0.05);
         let previous_speed = self.speed;
@@ -1768,7 +1774,8 @@ pub const OBSTACLES: [Obstacle; 5] = [
 #[cfg(test)]
 mod combat_aim_tests {
     use super::{
-        BikeState, GunnerInput, WorldPosition, evaluate_gunner_aim, line_of_sight_blocked,
+        BikeState, GUNNER_AIM_ORIGIN_REAR_M, GunnerInput, WorldPosition, evaluate_gunner_aim,
+        gunner_aim_origin, line_of_sight_blocked,
     };
 
     #[test]
@@ -1816,6 +1823,46 @@ mod combat_aim_tests {
                 aim.angle_degrees
             );
         }
+    }
+
+    #[test]
+    fn gunner_aim_origin_and_direction_follow_a_turned_bike() {
+        let bike = BikeState {
+            x: 4.0,
+            z: -3.0,
+            yaw: std::f32::consts::FRAC_PI_2,
+            speed: 0.0,
+            steering_angle: 0.0,
+        };
+        let origin = gunner_aim_origin(bike);
+        assert!(
+            (origin.x - (bike.x - GUNNER_AIM_ORIGIN_REAR_M)).abs() < 1.0e-5,
+            "turned-bike rear origin is x={:.3}",
+            origin.x
+        );
+        assert!((origin.z - bike.z).abs() < 1.0e-5);
+
+        let target = WorldPosition {
+            x: origin.x - 14.0,
+            y: origin.y + 6.0,
+            z: origin.z,
+        };
+        let aim = evaluate_gunner_aim(
+            bike,
+            GunnerInput {
+                pitch: (6.0_f32).atan2(14.0),
+                aim_held: true,
+                ..GunnerInput::default()
+            },
+            target,
+        );
+        assert!(aim.in_range);
+        assert!(
+            aim.in_cone,
+            "turned-bike rear aim error {:.3}°",
+            aim.angle_degrees
+        );
+        assert!(!aim.obstructed);
     }
 
     #[test]

@@ -985,7 +985,7 @@ pub fn capture_input(
         session.rider_input = RiderInput {
             pedal_held: mouse.pressed(MouseButton::Left),
             brake_held: keyboard.pressed(KeyCode::Space),
-            steer: (if right { 1.0 } else { 0.0 }) - (if left { 1.0 } else { 0.0 }),
+            steer: rider_steer_from_keys(left, right),
         };
 
         if mouse.just_pressed(MouseButton::Right) {
@@ -994,7 +994,7 @@ pub fn capture_input(
             session.rider_camera_pitch = RIDER_CAMERA_PITCH;
         }
         if session.rider_free_look && mouse.pressed(MouseButton::Right) {
-            session.rider_camera_yaw -= motion.delta.x * MOUSE_SENSITIVITY;
+            session.rider_camera_yaw += motion.delta.x * MOUSE_SENSITIVITY;
             session.rider_camera_pitch = (session.rider_camera_pitch
                 - motion.delta.y * MOUSE_SENSITIVITY)
                 .clamp(-0.72, 0.82);
@@ -1005,10 +1005,10 @@ pub fn capture_input(
         session.cursor_captured = mouse.pressed(MouseButton::Right);
     } else {
         session.rider_input = RiderInput::default();
-        session.gunner_input.yaw = (session.gunner_input.yaw - motion.delta.x * MOUSE_SENSITIVITY
-            + std::f32::consts::PI)
-            .rem_euclid(std::f32::consts::TAU)
-            - std::f32::consts::PI;
+        session.gunner_input.yaw =
+            (session.gunner_input.yaw + motion.delta.x * MOUSE_SENSITIVITY + std::f32::consts::PI)
+                .rem_euclid(std::f32::consts::TAU)
+                - std::f32::consts::PI;
         session.gunner_input.pitch = (session.gunner_input.pitch
             - motion.delta.y * MOUSE_SENSITIVITY)
             .clamp(GUNNER_PITCH_MIN_RADIANS, GUNNER_PITCH_MAX_RADIANS);
@@ -1185,11 +1185,11 @@ pub(super) fn apply_world_transforms(
     };
     transform.translation.x = session.bike.x;
     transform.translation.z = session.bike.z;
-    transform.rotation = Quat::from_rotation_y(session.bike.yaw);
+    transform.rotation = bike_facing_rotation(session.bike.yaw);
 
     if let Ok(mut gunner) = gunners.single_mut() {
         gunner.translation = GUNNER_SEAT;
-        gunner.rotation = Quat::from_rotation_y(GUNNER_HOME_YAW + session.gunner_input.yaw);
+        gunner.rotation = gunner_facing_rotation(session.gunner_input.yaw);
     }
     if let Ok(mut visibility) = gunner_visibility.single_mut() {
         *visibility = if session.local_seat == SeatKind::Gunner {
@@ -1216,7 +1216,7 @@ pub(super) fn apply_steering_visual(
 ) {
     for (name, mut transform) in &mut steering_nodes {
         if name.as_str().ends_with(".Steering") {
-            transform.rotation = Quat::from_rotation_y(session.bike.steering_angle);
+            transform.rotation = front_fork_rotation(session.bike.steering_angle);
         }
     }
 }
@@ -1467,6 +1467,24 @@ fn world_position(position: WorldPosition) -> Vec3 {
     Vec3::new(position.x, position.y, position.z)
 }
 
+/// Gameplay yaw is positive toward the bicycle's right; Bevy's +Y rotation
+/// sends local -Z toward the left, so convert at the render boundary.
+fn bike_facing_rotation(yaw: f32) -> Quat {
+    Quat::from_rotation_y(-yaw)
+}
+
+fn front_fork_rotation(steering_angle: f32) -> Quat {
+    Quat::from_rotation_y(-steering_angle)
+}
+
+fn gunner_facing_rotation(yaw_offset: f32) -> Quat {
+    Quat::from_rotation_y(GUNNER_HOME_YAW - yaw_offset)
+}
+
+fn rider_steer_from_keys(left: bool, right: bool) -> f32 {
+    (if right { 1.0 } else { 0.0 }) - (if left { 1.0 } else { 0.0 })
+}
+
 pub(super) fn update_camera(
     session: Res<GameSession>,
     mut cameras: Query<&mut Transform, With<FollowCamera>>,
@@ -1477,7 +1495,7 @@ pub(super) fn update_camera(
     let bike_position = Vec3::new(session.bike.x, 0.0, session.bike.z);
     match session.local_seat {
         SeatKind::Rider => {
-            let camera_yaw = Quat::from_rotation_y(session.rider_camera_yaw);
+            let camera_yaw = bike_facing_rotation(session.rider_camera_yaw);
             let eye = bike_position + camera_yaw * Vec3::new(0.0, 3.4, 7.4);
             let direction =
                 camera_yaw * Quat::from_rotation_x(session.rider_camera_pitch) * Vec3::NEG_Z;
@@ -1491,8 +1509,8 @@ pub(super) fn update_camera(
 
 fn gunner_camera_transform(bike: BikeState, input: GunnerInput) -> Transform {
     let bike_position = Vec3::new(bike.x, 0.0, bike.z);
-    let bike_rotation = Quat::from_rotation_y(bike.yaw);
-    let chair_rotation = Quat::from_rotation_y(GUNNER_HOME_YAW + input.yaw);
+    let bike_rotation = bike_facing_rotation(bike.yaw);
+    let chair_rotation = gunner_facing_rotation(input.yaw);
     let eye = bike_position
         + bike_rotation * GUNNER_SEAT
         + bike_rotation * (chair_rotation * GUNNER_CAMERA_AIM);
@@ -1753,11 +1771,37 @@ fn shortest_angle_delta(current: f32, target: f32) -> f32 {
 
 #[cfg(test)]
 mod tests {
-    use super::{GameSession, update_combat_visuals, update_hud};
-    use bevy::prelude::{App, Time, Update};
+    use super::{
+        GameSession, bike_facing_rotation, front_fork_rotation, rider_steer_from_keys,
+        update_combat_visuals, update_hud,
+    };
+    use bevy::prelude::{App, Time, Update, Vec3};
     use riverside_common::{CombatEvent, CombatEventKind, WorldPosition};
 
     use crate::network::NetworkClient;
+
+    #[test]
+    fn rider_keys_and_rendered_bike_turn_left_on_a_and_right_on_d() {
+        assert_eq!(rider_steer_from_keys(true, false), -1.0);
+        assert_eq!(rider_steer_from_keys(false, true), 1.0);
+        assert_eq!(rider_steer_from_keys(true, true), 0.0);
+
+        let yaw = 0.61_f32;
+        let forward = bike_facing_rotation(yaw) * Vec3::NEG_Z;
+        assert!((forward.x - yaw.sin()).abs() < 1.0e-5);
+        assert!((forward.z + yaw.cos()).abs() < 1.0e-5);
+
+        let d_front = front_fork_rotation(0.2) * Vec3::NEG_Z;
+        let a_front = front_fork_rotation(-0.2) * Vec3::NEG_Z;
+        assert!(d_front.x > 0.0, "D fork points left: {d_front:?}");
+        assert!(a_front.x < 0.0, "A fork points right: {a_front:?}");
+
+        let d_front_on_turn = bike_facing_rotation(yaw) * front_fork_rotation(0.2) * Vec3::NEG_Z;
+        let a_front_on_turn = bike_facing_rotation(yaw) * front_fork_rotation(-0.2) * Vec3::NEG_Z;
+        let rightward = |direction: Vec3| direction.x * yaw.cos() + direction.z * yaw.sin();
+        assert!(rightward(d_front_on_turn) > 0.0);
+        assert!(rightward(a_front_on_turn) < 0.0);
+    }
 
     #[test]
     fn combat_visual_system_has_no_conflicting_queries_at_startup() {

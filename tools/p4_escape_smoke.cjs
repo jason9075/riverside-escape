@@ -335,17 +335,16 @@ function gunnerInput(snapshot) {
   const bike = snapshot.bike;
   const helicopter = snapshot.helicopter;
   if (!helicopter) return { yaw: 0, pitch: 0, aim_held: false };
-  const rearYaw = bike.yaw + Math.PI;
   const origin = {
-    x: bike.x - Math.sin(rearYaw) * 1.03,
+    x: bike.x - Math.sin(bike.yaw) * 1.03,
     y: 1.84,
-    z: bike.z - Math.cos(rearYaw) * 1.03,
+    z: bike.z + Math.cos(bike.yaw) * 1.03,
   };
   const dx = helicopter.position.x - origin.x;
   const dy = helicopter.position.y - origin.y;
   const dz = helicopter.position.z - origin.z;
   return {
-    yaw: wrapAngle(Math.atan2(-dx, -dz) - bike.yaw - Math.PI),
+    yaw: wrapAngle(Math.atan2(dx, -dz) - bike.yaw - Math.PI),
     pitch: Math.atan2(dy, Math.hypot(dx, dz)),
     aim_held: true,
   };

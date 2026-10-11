@@ -81,7 +81,7 @@
 - 實玩回報指 A／D 從 Rider chase view 看來相反。根因在座標轉換：共享 gameplay yaw 增加代表向車體右側轉，車體前向為 `(sin(yaw), -cos(yaw))`；Bevy 對本地 `-Z` 的正 Y 旋轉方向相反。舊 Client 用正 yaw 旋轉自行車和鏡頭，畫面朝向便與 Server／共同 Kinematic 路徑不一致。
 - 保持已定義的 Rider mapping（A=`steer -1`、D=`+1`）與共用模擬方向，於 Bevy 呈現邊界以 `-yaw` 旋轉車架／chase camera，以 `-steering_angle` 旋轉前叉。Gunner 後座相機、權威瞄準方向與飛彈發射原點也使用一致的 gameplay yaw，因此車體已轉向時不會偏到鏡頭相反側。
 - 新增測試確認 A/D 輸入映射、車身前向與前叉左右呈現；Server 權威輸入在路線起點及 80 m、已轉向的直線上都確認 A 使車體朝左、D 朝右。共用瞄準測試另驗證車體轉向後 Gunner 朝後的原點與瞄準方向。
-- 遠端 WASM／WebGL2 實際按鍵測試在兩個獨立 Solo 新局按 D、A：D 權威 yaw `+0.177 rad`、相對車體右側位移 `+1.016 m`、前叉峰值 `+0.398 rad`；A 分別為 `−0.181 rad`、`−0.799 m`、`−0.428 rad`。兩次均無 JS 或 console error。報告與畫面見 [`A/D WASM 按鍵驗證`](verification/p4/ad-steering-wasm.json)。
+- 遠端 WASM／WebGL2 實際按鍵測試在兩個獨立 Solo 新局按 D、A：D 權威 yaw `+0.205 rad`、相對車體右側位移 `+1.208 m`、前叉峰值 `+0.450 rad`；A 分別為 `−0.099 rad`、`−0.310 m`、`−0.323 rad`。兩次均無 JS 或 console error。報告與畫面見 [`A/D WASM 按鍵驗證`](verification/p4/ad-steering-wasm.json)。
 - 固定 100 ms RTT 的 P3 雙人 WASM regression 在 Gunner yaw 修正後重新通過：三發命中事件、雙端勝利、重玩及 Solo 換座均正常，無 Client 錯誤；最新資料見 [`P3 瀏覽器驗證`](verification/p3/README.md)。
 - 修正後 Workspace 共 42 項測試（Client 4、common 10、reconciliation 6、Server 22）；格式檢查、WASM check、workspace Clippy、Server build 與 Trunk build 通過。結果驗證方向與協定行為，不代表實體 GPU 手感或最後平衡。
 - 本修正與瀏覽器證據獨立提交；完成後按最新 [`PRODUCT_PLAN.md`](PRODUCT_PLAN.md) 繼續 P5、P6。

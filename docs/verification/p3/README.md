@@ -2,7 +2,9 @@
 
 `smoke-report.json` records a complete dual-client and solo-seat run against the remote WASM client and authoritative server. The test used two isolated Headless Chromium 154 / SwiftShader clients through a loopback WebSocket proxy set to 100 ms RTT (50 ms each direction, no jitter or packet loss).
 
-The Gunner acquired the server lock with browser pointer lock active, then fired three single shots. The server reported helicopter health `100 → 66 → 32 → 0`, with matching fire and impact event IDs on Rider and Gunner at the same snapshot ticks. Both clients received `riders_victory` at tick 2148, both Ready flags cleared, and bike health was 75 after one rocket hit. Both seats readied again; the rematch countdown started at five seconds and the next Running snapshot had bike and helicopter health 100 and six missiles. The solo client forced Ready with `R`, switched to Gunner with `V`, and retained its health and ammo. All three browser clients had no JavaScript exceptions or console errors.
+The Gunner acquired the server lock with browser pointer lock active, then fired three single shots. The server reported helicopter health `100 → 66 → 32 → 0`, with matching fire and impact event IDs on Rider and Gunner at the same snapshot ticks. Both clients received `riders_victory` at tick 29,352, both Ready flags cleared, and bike health was 75 after one rocket hit. Both seats readied again; the rematch countdown started at five seconds and the next Running snapshot had bike and helicopter health 100 and six missiles. The solo client forced Ready with `R`, switched to Gunner with `V`, and retained its health and ammo. All three browser clients had no JavaScript exceptions or console errors.
+
+This regression was rerun after aligning gameplay yaw, rendered bike/chase orientation, and Gunner aim coordinates. It confirms the corrected Gunner world-space aim still locks and fires with the authoritative server at fixed 100 ms RTT; it does not measure a moving Rider's tracking stability.
 
 Run the check from the project root after starting the server with `RIVERSIDE_DEV_SOLO=1` and serving the WASM page at `http://127.0.0.1:8080/`:
 

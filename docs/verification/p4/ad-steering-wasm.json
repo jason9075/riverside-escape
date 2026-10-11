@@ -1,0 +1,68 @@
+{
+  "browser": "Chrome headless + SwiftShader / WebGL2",
+  "actions": [
+    {
+      "key": "D",
+      "expected": "right",
+      "start": {
+        "x": 0,
+        "z": 2,
+        "yaw": 0
+      },
+      "end": {
+        "x": 1.2077659,
+        "z": -7.8544726,
+        "yaw": 0.20513049,
+        "steer": 0.0225
+      },
+      "ticks": {
+        "start": 1971,
+        "end": 2436
+      },
+      "steering_response": {
+        "tick": 2049,
+        "angle": 0.0225,
+        "peak_angle": 0.45
+      },
+      "yaw_delta": 0.20513049000000017,
+      "lateral_delta_m": 1.2077659
+    },
+    {
+      "key": "A",
+      "expected": "left",
+      "start": {
+        "x": 0,
+        "z": 2,
+        "yaw": 0
+      },
+      "end": {
+        "x": -0.30963117,
+        "z": -3.652263,
+        "yaw": 6.1840243,
+        "steer": -0.045
+      },
+      "ticks": {
+        "start": 3072,
+        "end": 3540
+      },
+      "steering_response": {
+        "tick": 3165,
+        "angle": -0.045,
+        "peak_angle": -0.3225001
+      },
+      "yaw_delta": -0.09916100717958543,
+      "lateral_delta_m": -0.30963117
+    }
+  ],
+  "webgl2": true,
+  "client_errors": {
+    "right": {
+      "exceptions": [],
+      "console_errors": []
+    },
+    "left": {
+      "exceptions": [],
+      "console_errors": []
+    }
+  }
+}

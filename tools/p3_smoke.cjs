@@ -265,17 +265,16 @@ function wrapAngle(angle) {
 function desiredGunnerAngles(snapshot) {
   const bike = snapshot.bike;
   const helicopter = snapshot.helicopter;
-  const rearYaw = bike.yaw + Math.PI;
   const origin = {
-    x: bike.x - Math.sin(rearYaw) * 1.03,
+    x: bike.x - Math.sin(bike.yaw) * 1.03,
     y: 1.84,
-    z: bike.z - Math.cos(rearYaw) * 1.03,
+    z: bike.z + Math.cos(bike.yaw) * 1.03,
   };
   const dx = helicopter.position.x - origin.x;
   const dy = helicopter.position.y - origin.y;
   const dz = helicopter.position.z - origin.z;
   return {
-    yaw: wrapAngle(Math.atan2(-dx, -dz) - bike.yaw - Math.PI),
+    yaw: wrapAngle(Math.atan2(dx, -dz) - bike.yaw - Math.PI),
     pitch: Math.atan2(dy, Math.hypot(dx, dz)),
   };
 }
@@ -284,12 +283,12 @@ async function aimAtHelicopter(client) {
   const snapshot = client.latest;
   if (!snapshot?.helicopter) return null;
   await updateMouseTrace(client);
-  const currentYaw = wrapAngle(-client.mouseDeltaX * 0.004);
+  const currentYaw = wrapAngle(client.mouseDeltaX * 0.004);
   const currentPitch = Math.max(-Math.PI / 4, Math.min(75 * Math.PI / 180, -client.mouseDeltaY * 0.004));
   const desired = desiredGunnerAngles(snapshot);
   const yawError = wrapAngle(desired.yaw - currentYaw);
   const pitchError = desired.pitch - currentPitch;
-  const deltaX = Math.abs(yawError) > 0.0015 ? Math.round(-yawError / 0.004) : 0;
+  const deltaX = Math.abs(yawError) > 0.0015 ? Math.round(yawError / 0.004) : 0;
   const deltaY = Math.abs(pitchError) > 0.0015 ? Math.round(-pitchError / 0.004) : 0;
   if (deltaX || deltaY) await moveMouse(client, deltaX, deltaY);
   return {

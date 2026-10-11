@@ -26,7 +26,7 @@ use riverside_common::{
     PLAYER_MISSILE_SPEED_MPS, PlayerMissileSnapshot, REQUIRED_SEATS, ROCKET_AIM_LEAD_SECONDS,
     ROCKET_BLAST_RADIUS_M, ROCKET_FLIGHT_TICKS, ROCKET_WARNING_TICKS, RiderInput, RoadSection,
     RocketSnapshot, RocketWarning, SIMULATION_HZ, SNAPSHOT_HZ, SeatKind, SeatStatus, ServerMessage,
-    WorldPosition, WorldSnapshot, evaluate_gunner_aim, first_cover_intersection,
+    WorldPosition, WorldSnapshot, evaluate_gunner_aim, first_cover_intersection, gunner_aim_origin,
     line_of_sight_blocked, riverside_course,
 };
 use tokio::{net::TcpListener, runtime::Builder, sync::broadcast};
@@ -827,12 +827,7 @@ impl Room {
 
         let attack_id = self.next_attack_id;
         self.next_attack_id = self.next_attack_id.saturating_add(1);
-        let yaw = self.bike.yaw + std::f32::consts::PI;
-        let launch_position = WorldPosition {
-            x: self.bike.x - yaw.sin() * riverside_common::GUNNER_AIM_ORIGIN_REAR_M,
-            y: riverside_common::GUNNER_AIM_ORIGIN_HEIGHT_M,
-            z: self.bike.z - yaw.cos() * riverside_common::GUNNER_AIM_ORIGIN_REAR_M,
-        };
+        let launch_position = gunner_aim_origin(self.bike);
         self.gunner_ammo = self.gunner_ammo.saturating_sub(1);
         self.fire_cooldown_until_tick = self.tick + GUNNER_FIRE_COOLDOWN_TICKS;
         self.player_missile = Some(PlayerMissileSnapshot {
@@ -1239,13 +1234,12 @@ mod tests {
     use super::{Room, input_tick_is_valid, move_helicopter_toward};
     use riverside_common::{
         BIKE_ROCKET_DAMAGE, BIKE_STARTING_HEALTH, BRIDGE_DECK_BOTTOM_M, BikeState, ClientMessage,
-        CombatEventKind, CoverKind, FireRejectionReason, GUNNER_AIM_ORIGIN_HEIGHT_M,
-        GUNNER_AIM_ORIGIN_REAR_M, GUNNER_LOCK_GRACE_TICKS, GUNNER_LOCK_TICKS, GUNNER_STARTING_AMMO,
-        GamePhase, GunnerInput, HELICOPTER_CHASE_TICKS, HELICOPTER_STARTING_HEALTH,
-        HelicopterPhase, MatchResult, MatchVictoryReason, PLAYER_MISSILE_DAMAGE,
-        PlayerMissileSnapshot, REQUIRED_SEATS, ROCKET_BLAST_RADIUS_M, ROCKET_FLIGHT_TICKS,
-        ROCKET_WARNING_TICKS, RiderInput, RocketSnapshot, RocketWarning, SIMULATION_HZ,
-        WorldPosition, riverside_course,
+        CombatEventKind, CoverKind, FireRejectionReason, GUNNER_LOCK_GRACE_TICKS,
+        GUNNER_LOCK_TICKS, GUNNER_STARTING_AMMO, GamePhase, GunnerInput, HELICOPTER_CHASE_TICKS,
+        HELICOPTER_STARTING_HEALTH, HelicopterPhase, MatchResult, MatchVictoryReason,
+        PLAYER_MISSILE_DAMAGE, PlayerMissileSnapshot, REQUIRED_SEATS, ROCKET_BLAST_RADIUS_M,
+        ROCKET_FLIGHT_TICKS, ROCKET_WARNING_TICKS, RiderInput, RocketSnapshot, RocketWarning,
+        SIMULATION_HZ, WorldPosition, gunner_aim_origin, riverside_course,
     };
     use std::{
         collections::BTreeSet,
@@ -1306,6 +1300,66 @@ mod tests {
         );
         assert_eq!(room.rider_input, pedal);
         assert_eq!(room.seats[&super::SeatKind::Rider].last_sequence, 1);
+    }
+
+    #[test]
+    fn authoritative_rider_steer_matches_a_left_and_d_right_at_two_headings() {
+        let run_turn = |start_distance_m, steer| {
+            let mut room = running_room();
+            room.helicopter = None;
+            let start_point = riverside_course().point_at(start_distance_m);
+            room.bike.x = start_point.center_x;
+            room.bike.z = start_point.center_z;
+            room.bike.yaw = start_point.yaw;
+            room.route_distance_m = start_distance_m;
+            let start_bike = room.bike;
+            let mut now = Instant::now();
+            for _ in 0..120 {
+                step_room(
+                    &mut room,
+                    &mut now,
+                    RiderInput {
+                        pedal_held: true,
+                        steer,
+                        ..RiderInput::default()
+                    },
+                );
+            }
+            (start_bike, room.bike)
+        };
+
+        for start_distance_m in [0.0, 80.0] {
+            let (start, left) = run_turn(start_distance_m, -1.0);
+            let (right_start, right) = run_turn(start_distance_m, 1.0);
+            let lateral_from = |initial: BikeState, final_state: BikeState| {
+                (final_state.x - initial.x) * initial.yaw.cos()
+                    + (final_state.z - initial.z) * initial.yaw.sin()
+            };
+            assert!(
+                lateral_from(start, left) < -0.1,
+                "A/left turn at {:.1} m moved to the right by {:.3} m",
+                start_distance_m,
+                lateral_from(start, left)
+            );
+            assert!(left.steering_angle < 0.0);
+            assert!(
+                route_angle_delta(start.yaw, left.yaw) < 0.0,
+                "A/left yaw moved right at {:.1} m",
+                start_distance_m
+            );
+            assert!(
+                lateral_from(right_start, right) > 0.1,
+                "D/right turn at {:.1} m moved left by {:.3} m",
+                start_distance_m,
+                lateral_from(right_start, right)
+            );
+            assert!(right.steering_angle > 0.0);
+            assert!(
+                route_angle_delta(right_start.yaw, right.yaw) > 0.0,
+                "D/right yaw moved left at {:.1} m",
+                start_distance_m
+            );
+        }
     }
 
     fn connect_and_ready_both_seats(room: &mut Room) {
@@ -1522,16 +1576,11 @@ mod tests {
     fn gunner_input_for_helicopter(room: &Room, aim_held: bool) -> GunnerInput {
         let target = room.helicopter.expect("running helicopter").position;
         let bike = room.bike;
-        let home_yaw = bike.yaw + std::f32::consts::PI;
-        let origin = WorldPosition {
-            x: bike.x - home_yaw.sin() * GUNNER_AIM_ORIGIN_REAR_M,
-            y: GUNNER_AIM_ORIGIN_HEIGHT_M,
-            z: bike.z - home_yaw.cos() * GUNNER_AIM_ORIGIN_REAR_M,
-        };
+        let origin = gunner_aim_origin(bike);
         let dx = target.x - origin.x;
         let dy = target.y - origin.y;
         let dz = target.z - origin.z;
-        let target_yaw = (-dx).atan2(-dz);
+        let target_yaw = dx.atan2(-dz);
         GunnerInput {
             yaw: target_yaw - bike.yaw - std::f32::consts::PI,
             pitch: dy.atan2(dx.hypot(dz)),

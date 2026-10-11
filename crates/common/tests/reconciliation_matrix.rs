@@ -4,6 +4,7 @@ use riverside_common::{
     BIKE_RENDER_CORRECTION_TAU_SECS, BikeRenderOffset, BikeState, FIXED_DT,
     INTERPOLATION_DELAY_TICKS, MAX_INPUT_TICK_AGE, MAX_INPUT_TICK_FUTURE, RiderInput,
     RiderInputSample, RiderPrediction, SIMULATION_HZ, SNAPSHOT_HZ, SnapshotInterpolator,
+    riverside_course,
 };
 
 #[derive(Clone, Copy)]
@@ -390,7 +391,13 @@ fn reconciliation_restores_same_tick_then_replays_unconfirmed_held_input() {
 
 #[test]
 fn stationary_steer_moves_the_fork_not_the_bicycle_body() {
-    let mut bike = BikeState::default();
+    let start = riverside_course().point_at(80.0);
+    let mut bike = BikeState {
+        x: start.center_x,
+        z: start.center_z,
+        yaw: start.yaw,
+        ..BikeState::default()
+    };
     let initial = bike;
     let turn_left = RiderInput {
         steer: -1.0,
@@ -415,7 +422,16 @@ fn stationary_steer_moves_the_fork_not_the_bicycle_body() {
         bike.step(pedal_turn, FIXED_DT);
     }
     assert_ne!(bike.yaw, previous_yaw);
-    assert!(bike.x.abs() > 0.01 || (bike.z - initial.z).abs() > 0.01);
+    let yaw_delta = (bike.yaw - initial.yaw + std::f32::consts::PI)
+        .rem_euclid(std::f32::consts::TAU)
+        - std::f32::consts::PI;
+    let lateral_delta =
+        (bike.x - initial.x) * initial.yaw.cos() + (bike.z - initial.z) * initial.yaw.sin();
+    assert!(yaw_delta < 0.0, "A turned right by {yaw_delta:.4} radians");
+    assert!(
+        lateral_delta < -0.01,
+        "A moved right by {lateral_delta:.3} m"
+    );
 }
 
 #[test]
