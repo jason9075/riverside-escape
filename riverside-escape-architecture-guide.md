@@ -1,6 +1,6 @@
 # Riverside Escape — Rust + Bevy 雙人合作遊戲架構指南
 
-> 版本：0.7（概念設計 / MVP 技術規劃；P4 路線與逃脫原型配置）
+> 版本：0.8（概念設計 / MVP 技術規劃；轉向修正與 P5／P6 方向）
 > 日期：2026-10-11  
 > 目標：在瀏覽器中遊玩的台北河濱自行車雙人合作追逐遊戲
 
@@ -461,7 +461,18 @@ WaitingForPlayers → ReadyCheck → Countdown (5 seconds) → Running → Finis
 - Rider 斷線時可暫停或保守煞車；Gunner 斷線時可暫停或由 Rider 繼續逃亡。具體策略以玩法測試決定。
 - 短時間保留玩家席位並支援 Reconnect Token。
 
-### 11.2 第三名玩家的擴充方式
+### 11.2 P5 生命週期決策（PM 暫定方向）
+
+使用者要求先修正 A／D，再繼續 P5／P6。車手前進時 A 向車體左側、D 向右側轉，前叉與車頭顯示亦一致；自由觀看不改變車體相對語意。完整工作範圍與驗收以 [`docs/PRODUCT_PLAN.md`](docs/PRODUCT_PLAN.md) 最新決策為準，下列決策取代 §11.1 的待確認策略。
+
+- 同一 Server 初版支援最多 4 個活躍房間；建立／加入邀請碼或網址、原子選座、可點擊 Ready／取消 Ready 與離房 UI。房間的世界、事件、座位與狀態隔離，無玩家且無保留席位 10 分鐘後清理。
+- 換座清除雙方 Ready；開局倒數中取消 Ready 或斷線取消倒數並清除 Ready，重新準備後完整倒數 5 秒。正式 Running 不換座，開發 solo 維持獨立 R／V 流程。
+- Running 任一必需座位斷線時只暫停該房間，清輸入、鎖定、預告與投射物，不退款已花費彈藥；保留位置、耐久、彈藥、路線進度，暫停玩法時間與冷卻。
+- 原席位牆鐘保留 30 秒，房間／玩家專屬不可猜測的 Reconnect Token 只存該分頁 session storage，不進邀請網址。刷新／短斷線可恢復，拒絕跨房間 token 與雙 socket 控制。
+- 重連後兩人重新 Ready，再走 5 秒恢復倒數，保留本局資源；重建 Client 預測歷史，恢復後重新追擊與預告。逾期或 Running 主動離房顯示對局中止，釋放席位，可邀新人開新局。
+- 結果與 HUD 區分逃脫／擊落／耐久歸零／中止，顯示連線與操作狀態；使用可讀繁體中文，不依賴只供工程師看的快捷鍵或診斷文字。
+
+### 11.3 第三名玩家的擴充方式
 
 用 `SeatKind` 與 Capability/Permission 的概念擴充，而不要在全系統硬編碼 `player_count == 2`。
 
@@ -511,6 +522,15 @@ flowchart LR
 - Server Tick 用時與網路封包量。
 
 **建議網路模擬**：測試 RTT 50 / 100 / 200 ms，加上不同 Jitter 與適度 Packet Loss。記錄結果後再選擇 Prediction / Snapshot Rate，而不是僅憑理論決策。
+
+### 13.2 P6 原型工程驗證範圍
+
+- 桌面鍵鼠／WebGL2，先測 Chrome／Chromium 與 Firefox；版本及環境據實記錄。手機與 Safari 不在本批承諾。
+- 覆蓋 0／50／100／200 ms RTT，以及 100／200 ms RTT 加每方向 ±20 ms 可重現 jitter；另外針對隔離測試連線評估 1% TCP packet loss 與短斷線。不可用應用層丟訊息冒充封包遺失，也不改主機全域網路。
+- 同 Tick 誤差、輸入 Ack、Gunner 狀態年齡與額外校正、事件唯一性及重連皆要有證據。受控呈現頻率下，放開／煞車後 1 秒內連續三份快照同 Tick 位置誤差低於 2 cm、Ack 排空，非長斷線不 history miss。
+- 4 房間／8 玩家至少 10 分鐘負載，原型目標 tick duration p95 < 8 ms、p99 < 16.7 ms，記錄快照頻率／大小、記憶體及 Session／房間清理。
+- 實體 GPU 才驗證 frame time／瞄準體驗；原型目標 p95 frame time < 33.3 ms。沒有可測硬體或瀏覽器時標明未驗，不以 SwiftShader 宣告正式體驗通過。
+- 先修具體驗證失敗，再重測受影響範圍。報告、支援範圍、未驗清單及功能／修正 commits 統一交付；正式難度與平衡仍需玩家測試。
 
 ## 14. 架構決策紀錄（ADR）
 
