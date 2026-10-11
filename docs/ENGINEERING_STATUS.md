@@ -1,8 +1,8 @@
 # 工程狀態
 
 - 更新日期：2026-10-11
-- 目前階段：P0／P1／P2 原型工程驗收通過，P3 鎖定反擊與勝敗循環進行中
-- 範圍：P0／P1／P2 為已驗證基線；依 PM 最新決策開始 P3，尚未完成或提交的 P3 功能不列為交付
+- 目前階段：P0／P1／P2 原型工程驗收通過；P3 鎖定反擊與勝敗循環已完成實作、驗證與提交，待 PM 工程驗收
+- 範圍：P0／P1／P2 是已驗收基線；P3 依 PM 最新決策完成，參數仍屬可調原型配置
 
 ## Git 基線與提交狀態
 
@@ -34,6 +34,19 @@
 - `WorldSnapshot` 同時攜帶直升機／火箭狀態、命中計數，以及具 Attack ID 和單調 Event ID 的預告、發射、爆炸事件。Server 在快照短期重複事件，Client 依 Event ID 去重，確保晚到快照可恢復提示而不重複播放／結算。五秒保留窗涵蓋完整攻擊週期及落地後延遲。
 - Client 使用既有 `helicopter.glb` 與 `missile.glb`。Rider 顯示固定落點紅色危險區及剩餘時間；Gunner 顯示威脅方向和倒數；兩端在命中／閃避後顯示 Server 結果與命中次數。此階段不加入血量、勝敗、鎖定、反擊或新資產。
 - 新增 Client 啟動測試，確保各視覺 Query 互斥；Server 測試涵蓋倒數前不攻擊、留在落點只命中一次、騎離固定落點成功閃避、事件 ID 唯一／重設後不重用、事件落地後保留，以及 Rider／Gunner 座位權限。既有 common 固定步長 reconciliation 矩陣也持續通過。
+
+## P3 鎖定反擊與勝敗循環
+
+- Gunner 右鍵持續瞄準、左鍵單發；座椅可環繞 360°，俯仰限制 −45°～+75°。HUD 的 6° 鎖定環使用明確的 60° 相機垂直 FOV，預設隱藏診斷（F3 切換），避免工程數值遮住目標。
+- Server 以當下世界狀態判定 120 m 範圍、視線遮蔽、連續 2 秒有效鎖定及 0.2 秒短暫偏離寬限；放開瞄準、超距、遮蔽或超出寬限後清鎖。接受開火前再次驗證座位、遊戲階段、輸入新鮮度、瞄準、鎖定、冷卻、彈藥與飛彈狀態。只有受理才扣除每局 6 發及啟動 2 秒冷卻；飛彈由 Server 導引、命中或逾時只結算一次。
+- 修正 Gunner 相機／鎖定／飛彈發射點的後座座標一致性。開火時 Client 先將當幀瞄準輸入排在射擊請求前送出，降低固定 RTT 下舊的 20 Hz 輸入先被 Server 判為逾時的競態。
+- Server 權威處理直升機 100 HP、玩家飛彈每次 34 傷害、腳踏車 100 HP 與敵方火箭每次 25 傷害。玩家飛彈速度 42 m/s、命中半徑 1.75 m，六秒未命中即逾時；命中或逾時均只結算一次。相同 Tick 同時歸零時腳踏車失敗優先。Finished 後停止攻擊並清除 Ready；雙座重新 Ready 時清理上一局戰鬥狀態與車體，再倒數五秒。Solo 的 `R` 強制 Ready／開始與 `V` 換座保留，切座不重補血量或彈藥。
+- P3 數值集中在 `riverside-common`，對應 `PRODUCT_PLAN.md` 的暫定原型配置；不代表正式平衡決定。障礙碰撞傷害、終點、正式局長及命中回溯均不屬本批。
+- P3 測試新增 Server 案例涵蓋 2 秒鎖定、寬限續接／清零、放開清鎖、座位／Tick／階段／新鮮輸入驗證、超距／遮蔽／錐外拒絕、重複請求、彈藥與冷卻、實際命中與唯一結算、重賽清理、切座不補給及同 Tick 失敗優先。Workspace 共 27 項測試通過（Client 3、common 3、reconciliation 6、Server 15）。
+- 遠端實際 WASM／WebGL2 雙瀏覽器驗證注入固定 100 ms RTT（各方向 50 ms，未加入 jitter／loss）。兩端 Ready 後運行；Gunner pointer lock 生效，Server 回報完成鎖定並受理三發，直升機血量由 100→66→32→0；Rider／Gunner 在相同 Event ID 與 Tick 收到各發命中及 `riders_victory`，結果皆為直升機 0 HP、腳踏車 75 HP、Ready 清除。兩座重新 Ready 後倒數回到 Running，血量均重設為 100、彈藥 6；Solo 再按 `R` 開始、`V` 由 Rider 切 Gunner，血量與彈藥維持 100／6。三個瀏覽器均無 JS exception 或 console error。
+- 驗證報告與畫面：[P3 驗證說明](verification/p3/README.md)、[雙端事件／血量報告](verification/p3/smoke-report.json)、[Gunner 看見直升機](verification/p3/gunner-helicopter-visible.png)、[Gunner 飛彈命中](verification/p3/gunner-missile-hit.png)、[Rider／Gunner 勝利畫面](verification/p3/rider-victory.png)、[Solo 換至 Gunner](verification/p3/solo-gunner-after-switch.png)。
+- `cargo fmt --all -- --check`、`cargo test --workspace`、`cargo check --workspace`、WASM target check、`cargo clippy --workspace --all-targets`、Server build 與 Trunk Release build 均通過。
+- P3 功能與程式、測試、瀏覽器報告及畫面證據一併提交。
 
 ## 遠端開發與驗證環境
 
@@ -199,8 +212,8 @@ Server 現在在每個快照附上 `last_applied_rider_sequence`。Client 依確
 
 ## 尚待驗收與下一步
 
-- P1、P2 均已由 PM 工程驗收；最新決策已開放 P3。此文件持續記錄目前 P3 實作與逐項提交狀態。
-- P2 已驗證固定 100 ms RTT；jitter、packet loss 與實體 GPU 尚未測。SwiftShader/headless 的畫面與輸入時序不作為一般玩家裝置的效能保證。
-- 控制器仍沒有量化轉彎測試；依研究對照先驗證問題，再決定是否調整轉向曲線、輸入漸變或視覺傾斜，不擴寫控制器。
-- P3 鎖定、玩家反擊、耐久、勝敗與重玩尚在實作；待必要驗證及對應 commit 完成後才標記交付。完整 Lobby、重連與正式斷線規則留待後續階段。
+- P3 已完成實作、必要驗證與功能 commit，待 PM 工程驗收；本批生命值、傷害、鎖定與武器值仍是 PM 可調原型配置，不是正式平衡結論。
+- 固定 100 ms RTT 的遠端 SwiftShader／headless 驗證通過；jitter、packet loss、實體 GPU、其他瀏覽器與完整玩家體驗仍待後續驗收。
+- 控制器尚無量化轉彎測試；依研究對照先驗證問題，再決定是否調整轉向曲線、輸入漸變或視覺傾斜，不擴寫控制器。
+- 完整 Lobby、重連與正式斷線規則留待後續階段。
 

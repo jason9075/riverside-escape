@@ -29,6 +29,31 @@ pub const ROCKET_AIM_LEAD_SECONDS: f32 = 0.6;
 pub const ROCKET_BLAST_RADIUS_M: f32 = 2.5;
 pub const COMBAT_EVENT_RETENTION_SECONDS: u64 = 5;
 pub const COMBAT_EVENT_RETENTION_TICKS: u64 = SIMULATION_HZ as u64 * COMBAT_EVENT_RETENTION_SECONDS;
+pub const GUNNER_LOCK_CONE_HALF_ANGLE_DEGREES: f32 = 6.0;
+pub const GUNNER_LOCK_CONE_HALF_ANGLE_RADIANS: f32 =
+    std::f32::consts::PI * GUNNER_LOCK_CONE_HALF_ANGLE_DEGREES / 180.0;
+pub const GUNNER_LOCK_DISTANCE_M: f32 = 120.0;
+pub const GUNNER_LOCK_SECONDS: f32 = 2.0;
+pub const GUNNER_LOCK_TICKS: u64 = (SIMULATION_HZ as f32 * GUNNER_LOCK_SECONDS) as u64;
+pub const GUNNER_LOCK_GRACE_SECONDS: f32 = 0.2;
+pub const GUNNER_LOCK_GRACE_TICKS: u64 = (SIMULATION_HZ as f32 * GUNNER_LOCK_GRACE_SECONDS) as u64;
+pub const GUNNER_PITCH_MIN_RADIANS: f32 = -std::f32::consts::PI / 4.0;
+pub const GUNNER_PITCH_MAX_RADIANS: f32 = std::f32::consts::PI * 75.0 / 180.0;
+pub const GUNNER_AIM_ORIGIN_HEIGHT_M: f32 = 1.84;
+pub const GUNNER_AIM_ORIGIN_REAR_M: f32 = 1.03;
+pub const PLAYER_MISSILE_SPEED_MPS: f32 = 42.0;
+pub const PLAYER_MISSILE_HIT_RADIUS_M: f32 = 1.75;
+pub const PLAYER_MISSILE_LIFETIME_SECONDS: f32 = 6.0;
+pub const PLAYER_MISSILE_LIFETIME_TICKS: u64 =
+    (SIMULATION_HZ as f32 * PLAYER_MISSILE_LIFETIME_SECONDS) as u64;
+pub const GUNNER_FIRE_COOLDOWN_SECONDS: f32 = 2.0;
+pub const GUNNER_FIRE_COOLDOWN_TICKS: u64 =
+    (SIMULATION_HZ as f32 * GUNNER_FIRE_COOLDOWN_SECONDS) as u64;
+pub const GUNNER_STARTING_AMMO: u8 = 6;
+pub const BIKE_STARTING_HEALTH: u16 = 100;
+pub const BIKE_ROCKET_DAMAGE: u16 = 25;
+pub const HELICOPTER_STARTING_HEALTH: u16 = 100;
+pub const PLAYER_MISSILE_DAMAGE: u16 = 34;
 const MAX_EXTRAPOLATION_TICKS: f64 = (SIMULATION_HZ / 10) as f64;
 
 pub const HELICOPTER_CHASE_TICKS: u64 = (SIMULATION_HZ as f32 * HELICOPTER_CHASE_SECONDS) as u64;
@@ -65,6 +90,37 @@ pub enum GamePhase {
     ReadyCheck,
     Countdown,
     Running,
+    Finished,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MatchResult {
+    RidersVictory,
+    RidersDefeat,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DamageTarget {
+    Bike,
+    Helicopter,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FireRejectionReason {
+    NotRunning,
+    StaleInput,
+    NotAiming,
+    NoTarget,
+    TargetOutsideCone,
+    OutOfRange,
+    Obstructed,
+    NotLocked,
+    Cooldown,
+    NoAmmo,
+    MissileInFlight,
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
@@ -110,6 +166,10 @@ pub enum ClientMessage {
         sequence: u32,
         tick: u64,
         input: GunnerInput,
+    },
+    FireRequest {
+        request_id: u64,
+        tick: u64,
     },
 }
 
@@ -180,11 +240,41 @@ pub struct RocketSnapshot {
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+pub struct PlayerMissileSnapshot {
+    pub attack_id: u64,
+    pub launch_position: WorldPosition,
+    pub position: WorldPosition,
+    pub launch_tick: u64,
+    pub expires_tick: u64,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum CombatEventKind {
     RocketWarning,
     RocketLaunched,
-    RocketExploded { hit: bool, hit_count: u32 },
+    RocketExploded {
+        hit: bool,
+        hit_count: u32,
+    },
+    BikeDamaged {
+        health_remaining: u16,
+    },
+    GunnerFireAccepted {
+        request_id: u64,
+        ammo_remaining: u8,
+    },
+    GunnerFireRejected {
+        request_id: u64,
+        reason: FireRejectionReason,
+    },
+    PlayerMissileImpacted {
+        hit: bool,
+        helicopter_health: u16,
+    },
+    MatchFinished {
+        result: MatchResult,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
@@ -194,6 +284,113 @@ pub struct CombatEvent {
     pub tick: u64,
     pub position: WorldPosition,
     pub kind: CombatEventKind,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
+pub struct AimEvaluation {
+    pub distance_m: f32,
+    pub angle_degrees: f32,
+    pub in_cone: bool,
+    pub in_range: bool,
+    pub obstructed: bool,
+}
+
+pub fn gunner_aim_direction(bike: BikeState, input: GunnerInput) -> WorldPosition {
+    let yaw = bike.yaw + std::f32::consts::PI + input.yaw;
+    let pitch_cos = input.pitch.cos();
+    WorldPosition {
+        x: -yaw.sin() * pitch_cos,
+        y: input.pitch.sin(),
+        z: -yaw.cos() * pitch_cos,
+    }
+}
+
+pub fn evaluate_gunner_aim(
+    bike: BikeState,
+    input: GunnerInput,
+    target: WorldPosition,
+) -> AimEvaluation {
+    let origin_yaw = bike.yaw + std::f32::consts::PI;
+    let origin = WorldPosition {
+        x: bike.x - origin_yaw.sin() * GUNNER_AIM_ORIGIN_REAR_M,
+        y: GUNNER_AIM_ORIGIN_HEIGHT_M,
+        z: bike.z - origin_yaw.cos() * GUNNER_AIM_ORIGIN_REAR_M,
+    };
+    let dx = target.x - origin.x;
+    let dy = target.y - origin.y;
+    let dz = target.z - origin.z;
+    let distance_squared = dx * dx + dy * dy + dz * dz;
+    let distance_m = distance_squared.sqrt();
+    let direction = gunner_aim_direction(bike, input);
+    let dot = if distance_m > f32::EPSILON {
+        ((direction.x * dx + direction.y * dy + direction.z * dz) / distance_m).clamp(-1.0, 1.0)
+    } else {
+        1.0
+    };
+    let angle_degrees = dot.acos().to_degrees();
+    AimEvaluation {
+        distance_m,
+        angle_degrees,
+        in_cone: angle_degrees <= GUNNER_LOCK_CONE_HALF_ANGLE_DEGREES,
+        in_range: distance_m <= GUNNER_LOCK_DISTANCE_M,
+        obstructed: line_of_sight_blocked(origin, target),
+    }
+}
+
+fn line_of_sight_blocked(origin: WorldPosition, target: WorldPosition) -> bool {
+    for obstacle in OBSTACLES {
+        let (height, padding) = match obstacle.kind {
+            ObstacleKind::Cone => (0.9, 0.08),
+            ObstacleKind::Bollard => (1.2, 0.08),
+            ObstacleKind::Barrier => (1.4, 0.0),
+        };
+        let min_x = obstacle.x - obstacle.half_width - padding;
+        let max_x = obstacle.x + obstacle.half_width + padding;
+        let min_z = obstacle.z - obstacle.half_depth - padding;
+        let max_z = obstacle.z + obstacle.half_depth + padding;
+        let Some((entry, exit)) = segment_box_interval(origin, target, min_x, max_x, min_z, max_z)
+        else {
+            continue;
+        };
+        let t = entry.clamp(0.0, 1.0);
+        if t <= exit && origin.y + (target.y - origin.y) * t <= height {
+            return true;
+        }
+    }
+    false
+}
+
+fn segment_box_interval(
+    origin: WorldPosition,
+    target: WorldPosition,
+    min_x: f32,
+    max_x: f32,
+    min_z: f32,
+    max_z: f32,
+) -> Option<(f32, f32)> {
+    let mut entry: f32 = 0.0;
+    let mut exit: f32 = 1.0;
+    let delta_x = target.x - origin.x;
+    let delta_z = target.z - origin.z;
+    for (origin, delta, min, max) in [
+        (origin.x, delta_x, min_x, max_x),
+        (origin.z, delta_z, min_z, max_z),
+    ] {
+        if delta.abs() <= f32::EPSILON {
+            if origin < min || origin > max {
+                return None;
+            }
+            continue;
+        }
+        let a = (min - origin) / delta;
+        let b = (max - origin) / delta;
+        entry = entry.max(a.min(b));
+        exit = exit.min(a.max(b));
+        if entry > exit {
+            return None;
+        }
+    }
+    (exit >= 0.0 && entry <= 1.0).then_some((entry, exit))
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -215,6 +412,38 @@ pub struct WorldSnapshot {
     pub combat_events: Vec<CombatEvent>,
     #[serde(default)]
     pub rocket_hit_count: u32,
+    #[serde(default)]
+    pub player_missile: Option<PlayerMissileSnapshot>,
+    #[serde(default = "default_starting_bike_health")]
+    pub bike_health: u16,
+    #[serde(default = "default_starting_helicopter_health")]
+    pub helicopter_health: u16,
+    #[serde(default = "default_starting_ammo")]
+    pub gunner_ammo: u8,
+    #[serde(default)]
+    pub gunner_lock_progress_ticks: u16,
+    #[serde(default)]
+    pub gunner_lock_grace_ticks_remaining: u16,
+    #[serde(default)]
+    pub gunner_locked: bool,
+    #[serde(default)]
+    pub gunner_can_fire: bool,
+    #[serde(default)]
+    pub fire_cooldown_ticks_remaining: u16,
+    #[serde(default)]
+    pub match_result: Option<MatchResult>,
+}
+
+fn default_starting_bike_health() -> u16 {
+    BIKE_STARTING_HEALTH
+}
+
+fn default_starting_helicopter_health() -> u16 {
+    HELICOPTER_STARTING_HEALTH
+}
+
+fn default_starting_ammo() -> u8 {
+    GUNNER_STARTING_AMMO
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
@@ -645,3 +874,78 @@ pub const OBSTACLES: [Obstacle; 5] = [
         half_depth: 0.35,
     },
 ];
+
+#[cfg(test)]
+mod combat_aim_tests {
+    use super::{
+        BikeState, GunnerInput, WorldPosition, evaluate_gunner_aim, line_of_sight_blocked,
+    };
+
+    #[test]
+    fn default_rear_seat_can_aim_at_the_chase_helicopter() {
+        let bike = BikeState::default();
+        let origin_y = 1.84;
+        let pitch = (8.0_f32 - origin_y).atan2(14.0 - 1.03);
+        let aim = evaluate_gunner_aim(
+            bike,
+            GunnerInput {
+                pitch,
+                aim_held: true,
+                ..GunnerInput::default()
+            },
+            WorldPosition {
+                x: 0.0,
+                y: 8.0,
+                z: bike.z + 14.0,
+            },
+        );
+        assert!(aim.in_range, "distance {:.2} m", aim.distance_m);
+        assert!(aim.in_cone, "angle {:.2}°", aim.angle_degrees);
+        assert!(!aim.obstructed);
+    }
+
+    #[test]
+    fn full_yaw_range_can_aim_forward_and_rearward() {
+        let bike = BikeState::default();
+        for (yaw, z) in [(0.0, bike.z + 14.0), (std::f32::consts::PI, bike.z - 14.0)] {
+            let target = WorldPosition { x: 0.0, y: 8.0, z };
+            let origin_z = bike.z + 1.03;
+            let pitch = (target.y - 1.84).atan2((target.z - origin_z).abs());
+            let aim = evaluate_gunner_aim(
+                bike,
+                GunnerInput {
+                    yaw,
+                    pitch,
+                    aim_held: true,
+                },
+                target,
+            );
+            assert!(
+                aim.in_cone && aim.angle_degrees < 0.05,
+                "yaw {yaw:.2}, angle {:.2}°",
+                aim.angle_degrees
+            );
+        }
+    }
+
+    #[test]
+    fn gameplay_obstacle_blocks_low_sightline_but_not_high_sightline() {
+        let low_origin = WorldPosition {
+            x: -0.55,
+            y: 1.0,
+            z: -44.0,
+        };
+        let low_target = WorldPosition {
+            x: -0.55,
+            y: 1.0,
+            z: -30.0,
+        };
+        assert!(line_of_sight_blocked(low_origin, low_target));
+
+        let high_target = WorldPosition {
+            y: 8.0,
+            ..low_target
+        };
+        assert!(!line_of_sight_blocked(low_origin, high_target));
+    }
+}

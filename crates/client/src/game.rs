@@ -8,20 +8,20 @@ use bevy::{
     world_serialization::WorldAssetRoot,
 };
 use riverside_common::{
-    BikeRenderOffset, BikeState, ClientMessage, CombatEvent, CombatEventKind, FIXED_DT_SECONDS,
-    GamePhase, GunnerInput, HELICOPTER_ALTITUDE_M, HelicopterSnapshot, OBSTACLES, ObstacleKind,
-    REQUIRED_SEATS, ROCKET_BLAST_RADIUS_M, RiderInput, RiderInputSample, RiderPrediction,
-    RocketSnapshot, SIMULATION_HZ, SeatKind, SeatStatus, SnapshotInterpolator, WorldPosition,
-    WorldSnapshot,
+    BIKE_STARTING_HEALTH, BikeRenderOffset, BikeState, ClientMessage, CombatEvent, CombatEventKind,
+    FIXED_DT_SECONDS, FireRejectionReason, GUNNER_LOCK_CONE_HALF_ANGLE_DEGREES, GUNNER_LOCK_TICKS,
+    GUNNER_PITCH_MAX_RADIANS, GUNNER_PITCH_MIN_RADIANS, GUNNER_STARTING_AMMO, GamePhase,
+    GunnerInput, HELICOPTER_ALTITUDE_M, HELICOPTER_STARTING_HEALTH, HelicopterSnapshot,
+    MatchResult, OBSTACLES, ObstacleKind, PlayerMissileSnapshot, REQUIRED_SEATS,
+    ROCKET_BLAST_RADIUS_M, RiderInput, RiderInputSample, RiderPrediction, RocketSnapshot,
+    SIMULATION_HZ, SeatKind, SeatStatus, SnapshotInterpolator, WorldPosition, WorldSnapshot,
+    evaluate_gunner_aim,
 };
 
 use crate::network::NetworkClient;
 
 const CAMERA_RETURN_SPEED: f32 = 6.0;
 const MOUSE_SENSITIVITY: f32 = 0.004;
-const GUNNER_YAW_LIMIT: f32 = 1.92;
-const GUNNER_PITCH_MIN: f32 = -0.55;
-const GUNNER_PITCH_MAX: f32 = 0.45;
 const GUNNER_HOME_YAW: f32 = std::f32::consts::PI;
 const RIDER_CAMERA_PITCH: f32 = -0.19;
 const GUNNER_SEAT: Vec3 = Vec3::new(0.0, 1.12, 0.94);
@@ -70,7 +70,17 @@ pub struct GameSession {
     pub max_pending_rider_inputs: usize,
     pub helicopter: Option<HelicopterSnapshot>,
     pub rocket: Option<RocketSnapshot>,
+    pub player_missile: Option<PlayerMissileSnapshot>,
     pub rocket_hit_count: u32,
+    pub bike_health: u16,
+    pub helicopter_health: u16,
+    pub gunner_ammo: u8,
+    pub gunner_lock_progress_ticks: u16,
+    pub gunner_lock_grace_ticks_remaining: u16,
+    pub gunner_locked: bool,
+    pub gunner_can_fire: bool,
+    pub fire_cooldown_ticks_remaining: u16,
+    pub match_result: Option<MatchResult>,
     pub combat_notice_secs: f32,
     pub last_combat_event: Option<CombatEvent>,
     pub explosion_position: Option<WorldPosition>,
@@ -82,7 +92,12 @@ pub struct GameSession {
     pub rider_free_look: bool,
     pub cursor_captured: bool,
     pub focused: bool,
+    pub show_diagnostics: bool,
     input_sequence: u32,
+    fire_request_sequence: u64,
+    predicted_lock_progress_ticks: u16,
+    predicted_lock_outside_secs: f32,
+    fire_feedback: Option<(u64, Result<u8, FireRejectionReason>)>,
 }
 
 impl Default for GameSession {
@@ -132,7 +147,17 @@ impl Default for GameSession {
             max_pending_rider_inputs: 0,
             helicopter: None,
             rocket: None,
+            player_missile: None,
             rocket_hit_count: 0,
+            bike_health: BIKE_STARTING_HEALTH,
+            helicopter_health: HELICOPTER_STARTING_HEALTH,
+            gunner_ammo: GUNNER_STARTING_AMMO,
+            gunner_lock_progress_ticks: 0,
+            gunner_lock_grace_ticks_remaining: 0,
+            gunner_locked: false,
+            gunner_can_fire: false,
+            fire_cooldown_ticks_remaining: 0,
+            match_result: None,
             combat_notice_secs: 0.0,
             last_combat_event: None,
             explosion_position: None,
@@ -144,7 +169,12 @@ impl Default for GameSession {
             rider_free_look: false,
             cursor_captured: false,
             focused: true,
+            show_diagnostics: false,
             input_sequence: 0,
+            fire_request_sequence: 0,
+            predicted_lock_progress_ticks: 0,
+            predicted_lock_outside_secs: 0.0,
+            fire_feedback: None,
         }
     }
 }
@@ -154,6 +184,8 @@ impl GameSession {
         self.local_seat = seat;
         self.pending_rider_inputs.clear();
         self.pending_authoritative_snapshots.clear();
+        self.predicted_lock_progress_ticks = 0;
+        self.predicted_lock_outside_secs = 0.0;
         if seat == SeatKind::Rider && self.prediction_initialized {
             self.prediction
                 .reset(self.server_tick, self.authoritative_bike);
@@ -199,6 +231,10 @@ impl GameSession {
         self.server_tick = tick;
         self.client_tick = tick;
         self.last_applied_rider_sequence = ack;
+        self.fire_feedback = None;
+        self.match_result = None;
+        self.combat_notice_secs = 0.0;
+        self.last_combat_event = None;
     }
 
     pub fn receive_prestart_snapshot(&mut self, tick: u64, bike: BikeState) {
@@ -211,19 +247,35 @@ impl GameSession {
     }
 
     pub fn apply_combat_snapshot(&mut self, snapshot: &WorldSnapshot) {
+        self.rocket_hit_count = snapshot.rocket_hit_count;
+        self.bike_health = snapshot.bike_health;
+        self.helicopter_health = snapshot.helicopter_health;
+        self.gunner_ammo = snapshot.gunner_ammo;
+        self.gunner_lock_progress_ticks = snapshot.gunner_lock_progress_ticks;
+        self.gunner_lock_grace_ticks_remaining = snapshot.gunner_lock_grace_ticks_remaining;
+        self.gunner_locked = snapshot.gunner_locked;
+        self.gunner_can_fire = snapshot.gunner_can_fire;
+        self.fire_cooldown_ticks_remaining = snapshot.fire_cooldown_ticks_remaining;
+        self.match_result = snapshot.match_result;
         if snapshot.phase != GamePhase::Running {
             self.helicopter = None;
             self.rocket = None;
-            self.rocket_hit_count = 0;
-            self.combat_notice_secs = 0.0;
-            self.last_combat_event = None;
+            self.player_missile = None;
             self.explosion_position = None;
+            if snapshot.phase != GamePhase::Finished {
+                self.combat_notice_secs = 0.0;
+                self.last_combat_event = None;
+                self.fire_feedback = None;
+            }
+            for event in snapshot.combat_events.iter().copied() {
+                self.observe_combat_event(event);
+            }
             return;
         }
 
         self.helicopter = snapshot.helicopter;
         self.rocket = snapshot.rocket;
-        self.rocket_hit_count = snapshot.rocket_hit_count;
+        self.player_missile = snapshot.player_missile;
         for event in snapshot.combat_events.iter().copied() {
             self.observe_combat_event(event);
         }
@@ -239,10 +291,32 @@ impl GameSession {
                 self.seen_combat_event_ids.remove(&expired);
             }
         }
-        if matches!(event.kind, CombatEventKind::RocketExploded { .. }) {
-            self.explosion_position = Some(event.position);
-            self.combat_notice_secs = 1.25;
-            self.last_combat_event = Some(event);
+        match event.kind {
+            CombatEventKind::RocketExploded { .. }
+            | CombatEventKind::PlayerMissileImpacted { .. } => {
+                self.explosion_position = Some(event.position);
+                self.combat_notice_secs = 1.6;
+                self.last_combat_event = Some(event);
+            }
+            CombatEventKind::GunnerFireAccepted {
+                request_id,
+                ammo_remaining,
+            } => {
+                self.fire_feedback = Some((request_id, Ok(ammo_remaining)));
+                self.combat_notice_secs = 0.8;
+                self.last_combat_event = Some(event);
+            }
+            CombatEventKind::GunnerFireRejected { request_id, reason } => {
+                self.fire_feedback = Some((request_id, Err(reason)));
+                self.combat_notice_secs = 1.6;
+                self.last_combat_event = Some(event);
+            }
+            CombatEventKind::MatchFinished { result } => {
+                self.match_result = Some(result);
+                self.combat_notice_secs = 3.0;
+                self.last_combat_event = Some(event);
+            }
+            _ => {}
         }
         true
     }
@@ -327,6 +401,12 @@ pub(super) struct DangerZoneVisual;
 pub(super) struct ExplosionVisual;
 
 #[derive(Component)]
+pub(super) struct PlayerMissileVisual;
+
+#[derive(Component)]
+pub(super) struct LockConeRing;
+
+#[derive(Component)]
 pub(super) struct CombatHudText;
 
 type HelicopterVisualFilter = (
@@ -353,6 +433,14 @@ type ExplosionVisualFilter = (
     Without<RocketVisual>,
     Without<DangerZoneVisual>,
 );
+type PlayerMissileVisualFilter = (
+    With<PlayerMissileVisual>,
+    Without<HelicopterVisual>,
+    Without<RocketVisual>,
+    Without<DangerZoneVisual>,
+    Without<ExplosionVisual>,
+);
+type LockConeRingFilter = (With<LockConeRing>, Without<Reticle>);
 
 pub fn setup_scene(
     mut commands: Commands,
@@ -489,6 +577,14 @@ pub fn setup_scene(
         Transform::from_xyz(0.0, 0.0, 0.0).with_scale(Vec3::splat(2.0)),
         Visibility::Hidden,
     ));
+    commands.spawn((
+        PlayerMissileVisual,
+        WorldAssetRoot(
+            asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/missile.glb")),
+        ),
+        Transform::from_xyz(0.0, 0.0, 0.0).with_scale(Vec3::splat(0.82)),
+        Visibility::Hidden,
+    ));
 
     let warning_material = materials.add(StandardMaterial {
         base_color: Color::srgba(0.98, 0.12, 0.035, 0.34),
@@ -531,6 +627,10 @@ pub fn setup_scene(
 
     commands.spawn((
         Camera3d::default(),
+        Projection::Perspective(PerspectiveProjection {
+            fov: std::f32::consts::PI / 3.0,
+            ..default()
+        }),
         FollowCamera,
         Transform::from_xyz(0.0, 3.8, 9.0).looking_at(Vec3::new(0.0, 1.2, 0.0), Vec3::Y),
     ));
@@ -549,7 +649,7 @@ pub fn setup_scene(
         ))
         .with_children(|panel| {
             panel.spawn((
-                Text::new("RIVERSIDE ESCAPE   /   P2 ROCKET PROTOTYPE"),
+                Text::new("RIVERSIDE ESCAPE   /   P3 COMBAT PROTOTYPE"),
                 TextFont {
                     font_size: FontSize::Px(19.0),
                     ..default()
@@ -573,6 +673,22 @@ pub fn setup_scene(
             ..default()
         },
         Reticle,
+    ));
+    commands.spawn((
+        Node {
+            position_type: PositionType::Absolute,
+            left: percent(50),
+            top: percent(50),
+            width: px(120),
+            height: px(120),
+            margin: UiRect::all(px(-60)),
+            border: UiRect::all(px(2)),
+            border_radius: BorderRadius::MAX,
+            ..default()
+        },
+        BorderColor::all(Color::srgba(0.96, 0.86, 0.48, 0.8)),
+        Visibility::Hidden,
+        LockConeRing,
     ));
 
     commands
@@ -660,6 +776,9 @@ pub fn capture_input(
             });
         }
     }
+    if keyboard.just_pressed(KeyCode::F3) {
+        session.show_diagnostics = !session.show_diagnostics;
+    }
 
     if session.local_seat == SeatKind::Rider {
         let left = keyboard.pressed(KeyCode::KeyA);
@@ -687,14 +806,35 @@ pub fn capture_input(
         session.cursor_captured = mouse.pressed(MouseButton::Right);
     } else {
         session.rider_input = RiderInput::default();
-        session.gunner_input.yaw = (session.gunner_input.yaw - motion.delta.x * MOUSE_SENSITIVITY)
-            .clamp(-GUNNER_YAW_LIMIT, GUNNER_YAW_LIMIT);
+        session.gunner_input.yaw = (session.gunner_input.yaw - motion.delta.x * MOUSE_SENSITIVITY
+            + std::f32::consts::PI)
+            .rem_euclid(std::f32::consts::TAU)
+            - std::f32::consts::PI;
         session.gunner_input.pitch = (session.gunner_input.pitch
             - motion.delta.y * MOUSE_SENSITIVITY)
-            .clamp(GUNNER_PITCH_MIN, GUNNER_PITCH_MAX);
+            .clamp(GUNNER_PITCH_MIN_RADIANS, GUNNER_PITCH_MAX_RADIANS);
         session.gunner_input.aim_held = mouse.pressed(MouseButton::Right);
         if mouse.just_pressed(MouseButton::Left) || mouse.just_pressed(MouseButton::Right) {
             session.cursor_captured = true;
+        }
+        if mouse.just_pressed(MouseButton::Left)
+            && session.phase == GamePhase::Running
+            && network.connected
+        {
+            // A fire request is validated against the most recently received
+            // aim input. Send this frame's aim first so one-way network delay
+            // cannot make a valid trigger pull race a stale 20 Hz input sample.
+            session.input_sequence = session.input_sequence.wrapping_add(1).max(1);
+            network.send(ClientMessage::GunnerInput {
+                sequence: session.input_sequence,
+                tick: session.server_tick,
+                input: session.gunner_input,
+            });
+            session.fire_request_sequence = session.fire_request_sequence.saturating_add(1).max(1);
+            network.send(ClientMessage::FireRequest {
+                request_id: session.fire_request_sequence,
+                tick: session.server_tick,
+            });
         }
         if keyboard.just_pressed(KeyCode::Escape) {
             session.cursor_captured = false;
@@ -888,6 +1028,7 @@ pub(super) fn update_combat_visuals(
     mut session: ResMut<GameSession>,
     mut helicopters: Query<(&mut Transform, &mut Visibility), HelicopterVisualFilter>,
     mut rockets: Query<(&mut Transform, &mut Visibility), RocketVisualFilter>,
+    mut player_missiles: Query<(&mut Transform, &mut Visibility), PlayerMissileVisualFilter>,
     mut danger_zones: Query<(&mut Transform, &mut Visibility), DangerZoneVisualFilter>,
     mut explosions: Query<(&mut Transform, &mut Visibility), ExplosionVisualFilter>,
     mut combat_hud: Query<&mut Text, With<CombatHudText>>,
@@ -920,6 +1061,28 @@ pub(super) fn update_combat_visuals(
                 rocket_transform = rocket_transform.looking_to(direction.normalize(), Vec3::Y);
             }
             *transform = rocket_transform;
+            *visibility = Visibility::Visible;
+        } else {
+            *visibility = Visibility::Hidden;
+        }
+    }
+
+    if let Ok((mut transform, mut visibility)) = player_missiles.single_mut() {
+        if let Some(missile) = session
+            .player_missile
+            .filter(|_| session.phase == GamePhase::Running)
+        {
+            let mut missile_transform =
+                Transform::from_translation(world_position(missile.position))
+                    .with_scale(Vec3::splat(0.82));
+            if let Some(helicopter) = session.helicopter {
+                let direction = world_position(helicopter.position) - missile_transform.translation;
+                if direction.length_squared() > f32::EPSILON {
+                    missile_transform =
+                        missile_transform.looking_to(direction.normalize(), Vec3::Y);
+                }
+            }
+            *transform = missile_transform;
             *visibility = Visibility::Visible;
         } else {
             *visibility = Visibility::Hidden;
@@ -966,19 +1129,54 @@ pub(super) fn update_combat_visuals(
 }
 
 fn combat_status(session: &GameSession) -> String {
-    if session.phase != GamePhase::Running {
-        return String::new();
-    }
-
     if session.combat_notice_secs > 0.0
         && let Some(event) = session.last_combat_event
-        && let CombatEventKind::RocketExploded { hit, hit_count } = event.kind
     {
-        return if hit {
-            format!("ROCKET HIT  |  Confirmed hits: {hit_count}")
-        } else {
-            format!("ROCKET MISSED  |  Confirmed hits: {hit_count}")
+        match event.kind {
+            CombatEventKind::RocketExploded { hit, hit_count } => {
+                return if hit {
+                    format!("ROCKET HIT  |  Confirmed hits: {hit_count}")
+                } else {
+                    format!("ROCKET MISSED  |  Confirmed hits: {hit_count}")
+                };
+            }
+            CombatEventKind::BikeDamaged { health_remaining } => {
+                return format!("BIKE HIT  |  Health: {health_remaining}/100");
+            }
+            CombatEventKind::GunnerFireAccepted { ammo_remaining, .. } => {
+                return format!("MISSILE AWAY  |  Ammo: {ammo_remaining}");
+            }
+            CombatEventKind::GunnerFireRejected { reason, .. } => {
+                return format!("CANNOT FIRE  |  {}", fire_rejection_label(reason));
+            }
+            CombatEventKind::PlayerMissileImpacted {
+                hit,
+                helicopter_health,
+            } => {
+                return if hit {
+                    format!("MISSILE HIT  |  Helicopter: {helicopter_health}/100")
+                } else {
+                    "MISSILE MISSED  |  Target not reached".to_owned()
+                };
+            }
+            CombatEventKind::MatchFinished { result } => {
+                return match result {
+                    MatchResult::RidersVictory => "VICTORY  |  Helicopter destroyed".into(),
+                    MatchResult::RidersDefeat => "DEFEAT  |  Bike disabled".into(),
+                };
+            }
+            _ => {}
+        }
+    }
+    if session.phase == GamePhase::Finished {
+        return match session.match_result {
+            Some(MatchResult::RidersVictory) => "VICTORY  |  Press R to ready again".into(),
+            Some(MatchResult::RidersDefeat) => "DEFEAT  |  Press R to ready again".into(),
+            None => String::new(),
         };
+    }
+    if session.phase != GamePhase::Running {
+        return String::new();
     }
 
     if let Some(helicopter) = session.helicopter {
@@ -1004,6 +1202,12 @@ fn combat_status(session: &GameSession) -> String {
                 session.rocket_hit_count,
             );
         }
+        if session.player_missile.is_some() {
+            return format!(
+                "PLAYER MISSILE IN FLIGHT  |  Heli {} HP",
+                session.helicopter_health,
+            );
+        }
         return format!(
             "HELICOPTER {:?}  |  Confirmed rocket hits: {}",
             helicopter.phase, session.rocket_hit_count,
@@ -1011,6 +1215,22 @@ fn combat_status(session: &GameSession) -> String {
     }
 
     String::new()
+}
+
+fn fire_rejection_label(reason: FireRejectionReason) -> &'static str {
+    match reason {
+        FireRejectionReason::NotRunning => "round is not active",
+        FireRejectionReason::StaleInput => "aim input expired",
+        FireRejectionReason::NotAiming => "hold right mouse to aim",
+        FireRejectionReason::NoTarget => "helicopter unavailable",
+        FireRejectionReason::TargetOutsideCone => "helicopter outside the lock ring",
+        FireRejectionReason::OutOfRange => "target beyond 120 m",
+        FireRejectionReason::Obstructed => "target is obstructed",
+        FireRejectionReason::NotLocked => "keep the target in the ring for 2 s",
+        FireRejectionReason::Cooldown => "launcher cooling down",
+        FireRejectionReason::NoAmmo => "no missiles remaining",
+        FireRejectionReason::MissileInFlight => "missile still in flight",
+    }
 }
 
 fn threat_direction(session: &GameSession, helicopter: HelicopterSnapshot) -> &'static str {
@@ -1074,97 +1294,145 @@ fn gunner_camera_transform(bike: BikeState, input: GunnerInput) -> Transform {
 }
 
 pub(super) fn update_hud(
-    session: Res<GameSession>,
+    time: Res<Time>,
+    mut session: ResMut<GameSession>,
     network: Res<NetworkClient>,
-    mut hud: Query<&mut Text, With<HudText>>,
-    mut reticle: Query<&mut Visibility, With<Reticle>>,
+    mut hud: Query<&mut Text, (With<HudText>, Without<LockConeRing>)>,
+    mut reticle: Query<&mut Visibility, (With<Reticle>, Without<LockConeRing>)>,
+    mut lock_ring: Query<(&mut Node, &mut BorderColor, &mut Visibility), LockConeRingFilter>,
+    windows: Query<&Window, With<PrimaryWindow>>,
 ) {
+    update_predicted_lock(&mut session, time.delta_secs());
+    let status = if network.solo_unavailable {
+        "Solo mode disabled | start server with RIVERSIDE_DEV_SOLO=1".to_owned()
+    } else if network.room_full {
+        "Room full | close one of the other clients".to_owned()
+    } else if !session.is_connected {
+        "Local preview | server not connected".to_owned()
+    } else {
+        match session.phase {
+            GamePhase::WaitingForPlayers => "Waiting for the other seat".to_owned(),
+            GamePhase::ReadyCheck if session.solo_mode => {
+                "Solo mode | press R to ready both seats and start".to_owned()
+            }
+            GamePhase::ReadyCheck => "Ready check | press R when prepared".to_owned(),
+            GamePhase::Countdown => {
+                format!("Starting in {}...", session.countdown_seconds.unwrap_or(5))
+            }
+            GamePhase::Running => "Keep moving together".to_owned(),
+            GamePhase::Finished => match session.match_result {
+                Some(MatchResult::RidersVictory) => {
+                    "VICTORY | both players press R to replay".into()
+                }
+                Some(MatchResult::RidersDefeat) => "DEFEAT | both players press R to replay".into(),
+                None => "Finished | press R to ready for another round".into(),
+            },
+        }
+    };
+    let players = format!(
+        "Rider {}  |  Gunner {}",
+        slot_label(session.seats.get(&SeatKind::Rider)),
+        slot_label(session.seats.get(&SeatKind::Gunner)),
+    );
+    let controls = match (session.local_seat, session.solo_mode, session.is_connected) {
+        (SeatKind::Rider, true, _) => {
+            "LMB pedal · Space brake · A/D steer\nR ready both · V switch role · F3 diagnostics"
+        }
+        (SeatKind::Gunner, true, _) => {
+            "Mouse aim · hold RMB to lock · LMB fire\nR ready both · V switch role · F3 diagnostics"
+        }
+        (SeatKind::Rider, false, false) => {
+            "LMB pedal · Space brake · A/D steer\nRMB free look · F3 diagnostics"
+        }
+        (SeatKind::Rider, false, true) => {
+            "LMB pedal · Space brake · A/D steer\nRMB free look · R ready · F3 diagnostics"
+        }
+        (SeatKind::Gunner, false, _) => {
+            "Mouse aim · hold RMB to lock · LMB fire\nR ready · Esc release pointer · F3 diagnostics"
+        }
+    };
+    let lock_progress = session.gunner_lock_progress_ticks as f32 / GUNNER_LOCK_TICKS as f32;
+    let predicted_progress =
+        session.predicted_lock_progress_ticks as f32 / GUNNER_LOCK_TICKS as f32;
+    let combat = if session.local_seat == SeatKind::Gunner {
+        let server_lock = if session.gunner_locked {
+            "LOCKED"
+        } else if session.gunner_lock_grace_ticks_remaining > 0 {
+            "PAUSED"
+        } else {
+            "locking"
+        };
+        format!(
+            "Bike {:>3}/100  Heli {:>3}/100\nAmmo {}/{} · Server {server_lock} ({:.0}%) · {}",
+            session.bike_health,
+            session.helicopter_health,
+            session.gunner_ammo,
+            GUNNER_STARTING_AMMO,
+            lock_progress * 100.0,
+            if session.gunner_can_fire {
+                "READY TO FIRE".to_owned()
+            } else if session.fire_cooldown_ticks_remaining > 0 {
+                format!(
+                    "cooldown {:.1}s",
+                    session.fire_cooldown_ticks_remaining as f32 / SIMULATION_HZ as f32
+                )
+            } else {
+                format!("local aim estimate {:.0}%", predicted_progress * 100.0)
+            },
+        )
+    } else {
+        format!(
+            "Bike {:>3}/100  Heli {:>3}/100\nConfirmed rocket hits {}",
+            session.bike_health, session.helicopter_health, session.rocket_hit_count
+        )
+    };
+    let collision = if session.collision_flash > 0.0 {
+        "\nObstacle hit - steer around it"
+    } else {
+        ""
+    };
+    let diagnostics = if session.show_diagnostics && session.is_connected {
+        format!(
+            "\n\n[F3] Server {} / Client {} · Rider ack {} · pending {} (max {})\
+             \nSame-tick error {:.3} m / {:.2}° (max {:.3} m / {:.2}°)\
+             \nReplayed {} ticks ({} unacked) · history misses {}\
+             \nPred↔snapshot {:.2} m (max {:.2}; ticks differ)\
+             \nRender correction/frame {:.3} m (max {:.3}) · Gunner lag {:.1} ms\
+             \nMax app frame {:.1} ms · predicted lock {:.0}%",
+            session.server_tick,
+            session.client_tick,
+            session.last_applied_rider_sequence,
+            session.pending_rider_inputs.len(),
+            session.max_pending_rider_inputs,
+            session.same_tick_error_m,
+            session.same_tick_yaw_error_deg,
+            session.max_same_tick_error_m,
+            session.max_same_tick_yaw_error_deg,
+            session.replayed_ticks_last_snapshot,
+            session.replayed_unacknowledged_inputs_last_snapshot,
+            session.history_miss_count,
+            session.snapshot_gap_m,
+            session.max_snapshot_gap_m,
+            session.reconcile_bike_step_m,
+            session.max_reconcile_bike_step_m,
+            session.gunner_interpolation_lag_ms,
+            session.max_update_delta_ms,
+            predicted_progress * 100.0,
+        )
+    } else {
+        String::new()
+    };
     if let Ok(mut text) = hud.single_mut() {
-        let status = if network.solo_unavailable {
-            "Solo mode disabled | start server with RIVERSIDE_DEV_SOLO=1".to_owned()
-        } else if network.room_full {
-            "Room full | close one of the other clients".to_owned()
-        } else if !session.is_connected {
-            "Local preview | server not connected".to_owned()
-        } else {
-            match session.phase {
-                GamePhase::WaitingForPlayers => "Waiting for the other seat".to_owned(),
-                GamePhase::ReadyCheck if session.solo_mode => {
-                    "Solo mode | press R to ready both seats and start".to_owned()
-                }
-                GamePhase::ReadyCheck => "Ready check | press R when prepared".to_owned(),
-                GamePhase::Countdown => {
-                    format!("Starting in {}...", session.countdown_seconds.unwrap_or(5))
-                }
-                GamePhase::Running => "Ride!  Keep moving together".to_owned(),
-            }
-        };
-        let players = format!(
-            "Room  Rider {}  |  Gunner {}\n",
-            slot_label(session.seats.get(&SeatKind::Rider)),
-            slot_label(session.seats.get(&SeatKind::Gunner)),
-        );
-        let controls = match (session.local_seat, session.solo_mode, session.is_connected) {
-            (SeatKind::Rider, true, _) => {
-                "LEFT MOUSE  pedal     SPACE  brake\nA / D  steer (temporary)     RIGHT MOUSE  free look\nR  force-ready both seats     V  switch role"
-            }
-            (SeatKind::Gunner, true, _) => {
-                "MOUSE  turn the rear seat     RIGHT MOUSE  aim\nR  force-ready both seats     ESC  release pointer     V  switch role"
-            }
-            (SeatKind::Rider, false, false) => {
-                "LEFT MOUSE  pedal     SPACE  brake\nA / D  steer (temporary)     RIGHT MOUSE  free look\nV  local camera preview"
-            }
-            (SeatKind::Rider, false, true) => {
-                "LEFT MOUSE  pedal     SPACE  brake\nA / D  steer (temporary)     RIGHT MOUSE  free look\nR  toggle Ready     V  solo mode only"
-            }
-            (SeatKind::Gunner, false, _) => {
-                "MOUSE  turn the rear seat     RIGHT MOUSE  aim\nR  toggle Ready     ESC  release pointer     V  solo mode only"
-            }
-        };
-        let collision = if session.collision_flash > 0.0 {
-            "\nObstacle hit - steer around it"
-        } else {
-            ""
-        };
-        let correction = if session.is_connected {
-            format!(
-                "\nServer tick {} | Client tick {} | Rider ack {} | pending {} (max {})\
-                 \nSame-tick error {:.3} m / {:.2}° (max {:.3} m / {:.2}°)\
-                 \nReplayed {} ticks ({} unacked samples) | history misses {}\
-                 \nPred↔snapshot {:.2} m (max {:.2}; ticks differ)\
-                 \nRender correction/frame {:.3} m (max {:.3}); Gunner interp lag {:.1} ms\
-                 \nMax app frame Δ {:.1} ms",
-                session.server_tick,
-                session.client_tick,
-                session.last_applied_rider_sequence,
-                session.pending_rider_inputs.len(),
-                session.max_pending_rider_inputs,
-                session.same_tick_error_m,
-                session.same_tick_yaw_error_deg,
-                session.max_same_tick_error_m,
-                session.max_same_tick_yaw_error_deg,
-                session.replayed_ticks_last_snapshot,
-                session.replayed_unacknowledged_inputs_last_snapshot,
-                session.history_miss_count,
-                session.snapshot_gap_m,
-                session.max_snapshot_gap_m,
-                session.reconcile_bike_step_m,
-                session.max_reconcile_bike_step_m,
-                session.gunner_interpolation_lag_ms,
-                session.max_update_delta_ms,
-            )
-        } else {
-            String::new()
-        };
         text.0 = format!(
-            "RIVERSIDE ESCAPE  /  P1 + P2\n{}  |  {}\n{}Speed  {:>4.1} m/s\n\n{}{}{}",
+            "RIVERSIDE ESCAPE  /  P3\n{}  |  {}\n{}\nSpeed {:>4.1} m/s\n{}\n{}{}{}",
             session.local_seat.label(),
             status,
             players,
             session.bike.speed,
+            combat,
             controls,
             collision,
-            correction,
+            diagnostics,
         );
     }
     if let Ok(mut visibility) = reticle.single_mut() {
@@ -1173,6 +1441,68 @@ pub(super) fn update_hud(
         } else {
             Visibility::Hidden
         };
+    }
+    if let Ok((mut node, mut border_color, mut visibility)) = lock_ring.single_mut() {
+        let (radius, focused) = windows.single().map_or((60.0, false), |window| {
+            let half_height = window.height() * 0.5;
+            let cone_radius = half_height
+                * (GUNNER_LOCK_CONE_HALF_ANGLE_DEGREES.to_radians().tan())
+                / (std::f32::consts::PI / 6.0).tan();
+            (
+                cone_radius.clamp(36.0, 120.0),
+                session.local_seat == SeatKind::Gunner,
+            )
+        });
+        node.width = px(radius * 2.0);
+        node.height = px(radius * 2.0);
+        node.margin = UiRect::all(px(-radius));
+        if session.gunner_locked {
+            *border_color = BorderColor::all(Color::srgb(0.35, 1.0, 0.54));
+        } else if session.predicted_lock_progress_ticks > 0 {
+            *border_color = BorderColor::all(Color::srgb(1.0, 0.78, 0.30));
+        } else {
+            *border_color = BorderColor::all(Color::srgba(0.96, 0.86, 0.48, 0.8));
+        }
+        *visibility = if focused && session.phase == GamePhase::Running {
+            Visibility::Visible
+        } else {
+            Visibility::Hidden
+        };
+    }
+}
+
+fn update_predicted_lock(session: &mut GameSession, delta_secs: f32) {
+    if session.local_seat != SeatKind::Gunner
+        || session.phase != GamePhase::Running
+        || !session.gunner_input.aim_held
+        || session.helicopter_health == 0
+    {
+        session.predicted_lock_progress_ticks = 0;
+        session.predicted_lock_outside_secs = 0.0;
+        return;
+    }
+    let Some(helicopter) = session.helicopter else {
+        session.predicted_lock_progress_ticks = 0;
+        session.predicted_lock_outside_secs = 0.0;
+        return;
+    };
+    let aim = evaluate_gunner_aim(session.bike, session.gunner_input, helicopter.position);
+    if !aim.in_range || aim.obstructed {
+        session.predicted_lock_progress_ticks = 0;
+        session.predicted_lock_outside_secs = 0.0;
+    } else if aim.in_cone {
+        session.predicted_lock_outside_secs = 0.0;
+        let added_ticks = (delta_secs.max(0.0) * SIMULATION_HZ as f32).ceil() as u16;
+        session.predicted_lock_progress_ticks = session
+            .predicted_lock_progress_ticks
+            .saturating_add(added_ticks)
+            .min(GUNNER_LOCK_TICKS as u16);
+    } else if session.predicted_lock_progress_ticks > 0 {
+        session.predicted_lock_outside_secs += delta_secs.max(0.0);
+        if session.predicted_lock_outside_secs > 0.2 {
+            session.predicted_lock_progress_ticks = 0;
+            session.predicted_lock_outside_secs = 0.0;
+        }
     }
 }
 
@@ -1200,9 +1530,11 @@ fn shortest_angle_delta(current: f32, target: f32) -> f32 {
 
 #[cfg(test)]
 mod tests {
-    use super::{GameSession, update_combat_visuals};
+    use super::{GameSession, update_combat_visuals, update_hud};
     use bevy::prelude::{App, Time, Update};
     use riverside_common::{CombatEvent, CombatEventKind, WorldPosition};
+
+    use crate::network::NetworkClient;
 
     #[test]
     fn combat_visual_system_has_no_conflicting_queries_at_startup() {
@@ -1210,6 +1542,16 @@ mod tests {
         app.insert_resource(Time::<()>::default());
         app.insert_resource(GameSession::default());
         app.add_systems(Update, update_combat_visuals);
+        app.update();
+    }
+
+    #[test]
+    fn aim_hud_system_has_no_conflicting_queries_at_startup() {
+        let mut app = App::new();
+        app.insert_resource(Time::<()>::default());
+        app.insert_resource(GameSession::default());
+        app.insert_resource(NetworkClient::default());
+        app.add_systems(Update, update_hud);
         app.update();
     }
 

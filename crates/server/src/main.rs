@@ -15,13 +15,18 @@ use bevy_app::{App, ScheduleRunnerPlugin, Update};
 use bevy_ecs::prelude::*;
 use futures_util::{SinkExt, StreamExt};
 use riverside_common::{
-    BikeState, COMBAT_EVENT_RETENTION_TICKS, COUNTDOWN_SECONDS, ClientMessage, CombatEvent,
-    CombatEventKind, GamePhase, GunnerInput, HELICOPTER_ALTITUDE_M, HELICOPTER_CHASE_DISTANCE_M,
+    BIKE_ROCKET_DAMAGE, BIKE_STARTING_HEALTH, BikeState, COMBAT_EVENT_RETENTION_TICKS,
+    COUNTDOWN_SECONDS, ClientMessage, CombatEvent, CombatEventKind, FireRejectionReason,
+    GUNNER_FIRE_COOLDOWN_TICKS, GUNNER_LOCK_GRACE_TICKS, GUNNER_LOCK_TICKS, GUNNER_STARTING_AMMO,
+    GamePhase, GunnerInput, HELICOPTER_ALTITUDE_M, HELICOPTER_CHASE_DISTANCE_M,
     HELICOPTER_CHASE_TICKS, HELICOPTER_REPOSITION_OFFSET_M, HELICOPTER_REPOSITION_TICKS,
-    HELICOPTER_SPEED_MPS, HelicopterPhase, HelicopterSnapshot, MAX_INPUT_TICK_AGE,
-    MAX_INPUT_TICK_FUTURE, REQUIRED_SEATS, ROCKET_AIM_LEAD_SECONDS, ROCKET_BLAST_RADIUS_M,
+    HELICOPTER_SPEED_MPS, HELICOPTER_STARTING_HEALTH, HelicopterPhase, HelicopterSnapshot,
+    MAX_INPUT_TICK_AGE, MAX_INPUT_TICK_FUTURE, MatchResult, PLAYER_MISSILE_DAMAGE,
+    PLAYER_MISSILE_HIT_RADIUS_M, PLAYER_MISSILE_LIFETIME_TICKS, PLAYER_MISSILE_SPEED_MPS,
+    PlayerMissileSnapshot, REQUIRED_SEATS, ROCKET_AIM_LEAD_SECONDS, ROCKET_BLAST_RADIUS_M,
     ROCKET_FLIGHT_TICKS, ROCKET_WARNING_TICKS, RiderInput, RocketSnapshot, RocketWarning,
     SIMULATION_HZ, SNAPSHOT_HZ, SeatKind, SeatStatus, ServerMessage, WorldPosition, WorldSnapshot,
+    evaluate_gunner_aim,
 };
 use tokio::{net::TcpListener, runtime::Builder, sync::broadcast};
 
@@ -44,6 +49,15 @@ struct Room {
     last_rider_input_at: Option<Instant>,
     last_applied_rider_sequence: u32,
     gunner_input: GunnerInput,
+    last_gunner_input_at: Option<Instant>,
+    gunner_lock_progress_ticks: u64,
+    gunner_lock_outside_since_tick: Option<u64>,
+    player_missile: Option<PlayerMissileSnapshot>,
+    bike_health: u16,
+    helicopter_health: u16,
+    gunner_ammo: u8,
+    fire_cooldown_until_tick: u64,
+    match_result: Option<MatchResult>,
     helicopter: Option<HelicopterSnapshot>,
     rocket: Option<RocketSnapshot>,
     helicopter_phase_deadline_tick: u64,
@@ -58,6 +72,7 @@ struct SeatSlot {
     player_id: Option<u64>,
     ready: bool,
     last_sequence: u32,
+    last_fire_request_id: u64,
 }
 
 impl Room {
@@ -77,6 +92,15 @@ impl Room {
             last_rider_input_at: None,
             last_applied_rider_sequence: 0,
             gunner_input: GunnerInput::default(),
+            last_gunner_input_at: None,
+            gunner_lock_progress_ticks: 0,
+            gunner_lock_outside_since_tick: None,
+            player_missile: None,
+            bike_health: BIKE_STARTING_HEALTH,
+            helicopter_health: HELICOPTER_STARTING_HEALTH,
+            gunner_ammo: GUNNER_STARTING_AMMO,
+            fire_cooldown_until_tick: 0,
+            match_result: None,
             helicopter: None,
             rocket: None,
             helicopter_phase_deadline_tick: 0,
@@ -116,6 +140,28 @@ impl Room {
             rocket: self.rocket,
             combat_events: self.recent_combat_events.iter().copied().collect(),
             rocket_hit_count: self.rocket_hit_count,
+            player_missile: self.player_missile,
+            bike_health: self.bike_health,
+            helicopter_health: self.helicopter_health,
+            gunner_ammo: self.gunner_ammo,
+            gunner_lock_progress_ticks: self.gunner_lock_progress_ticks.min(u64::from(u16::MAX))
+                as u16,
+            gunner_lock_grace_ticks_remaining: self.gunner_lock_outside_since_tick.map_or(
+                0,
+                |started| {
+                    GUNNER_LOCK_GRACE_TICKS
+                        .saturating_sub(self.tick.saturating_sub(started))
+                        .min(u64::from(u16::MAX)) as u16
+                },
+            ),
+            gunner_locked: self.gunner_lock_progress_ticks >= GUNNER_LOCK_TICKS
+                && self.gunner_lock_outside_since_tick.is_none(),
+            gunner_can_fire: self.gunner_can_fire(now),
+            fire_cooldown_ticks_remaining: self
+                .fire_cooldown_until_tick
+                .saturating_sub(self.tick)
+                .min(u64::from(u16::MAX)) as u16,
+            match_result: self.match_result,
         }
     }
 
@@ -130,6 +176,7 @@ impl Room {
                 slot.player_id = Some(player_id);
                 slot.ready = false;
                 slot.last_sequence = 0;
+                slot.last_fire_request_id = 0;
             }
             self.phase = GamePhase::ReadyCheck;
             return Some((SeatKind::Rider, true));
@@ -144,6 +191,7 @@ impl Room {
         slot.player_id = Some(player_id);
         slot.ready = false;
         slot.last_sequence = 0;
+        slot.last_fire_request_id = 0;
         if self.phase != GamePhase::Running {
             self.phase = if self.all_required_connected() {
                 GamePhase::ReadyCheck
@@ -160,6 +208,7 @@ impl Room {
                 slot.player_id = None;
                 slot.ready = false;
                 slot.last_sequence = 0;
+                slot.last_fire_request_id = 0;
             }
             self.solo_player_id = None;
             self.solo_seat = None;
@@ -176,6 +225,7 @@ impl Room {
         slot.player_id = None;
         slot.ready = false;
         slot.last_sequence = 0;
+        slot.last_fire_request_id = 0;
         self.reset_match();
         self.phase = if self.all_required_connected() {
             GamePhase::ReadyCheck
@@ -195,6 +245,14 @@ impl Room {
         self.last_rider_input_at = None;
         self.last_applied_rider_sequence = 0;
         self.gunner_input = GunnerInput::default();
+        self.last_gunner_input_at = None;
+        self.clear_gunner_lock();
+        self.player_missile = None;
+        self.bike_health = BIKE_STARTING_HEALTH;
+        self.helicopter_health = HELICOPTER_STARTING_HEALTH;
+        self.gunner_ammo = GUNNER_STARTING_AMMO;
+        self.fire_cooldown_until_tick = 0;
+        self.match_result = None;
         self.bike = BikeState::default();
         self.helicopter = None;
         self.rocket = None;
@@ -204,6 +262,16 @@ impl Room {
     }
 
     fn begin_running(&mut self) {
+        self.bike_health = BIKE_STARTING_HEALTH;
+        self.helicopter_health = HELICOPTER_STARTING_HEALTH;
+        self.gunner_ammo = GUNNER_STARTING_AMMO;
+        self.fire_cooldown_until_tick = self.tick;
+        self.player_missile = None;
+        self.match_result = None;
+        self.rocket_hit_count = 0;
+        self.clear_gunner_lock();
+        self.gunner_input = GunnerInput::default();
+        self.last_gunner_input_at = None;
         self.helicopter = Some(HelicopterSnapshot {
             position: WorldPosition {
                 x: self.bike.x,
@@ -215,7 +283,6 @@ impl Room {
             warning: None,
         });
         self.rocket = None;
-        self.rocket_hit_count = 0;
         self.helicopter_phase_deadline_tick = self.tick + HELICOPTER_CHASE_TICKS;
     }
 
@@ -231,6 +298,13 @@ impl Room {
             }
             self.phase = GamePhase::WaitingForPlayers;
             self.countdown_deadline = None;
+        } else if self.phase == GamePhase::Finished {
+            if both_ready {
+                self.reset_match();
+                self.phase = GamePhase::Countdown;
+                self.countdown_deadline =
+                    Some(now + Duration::from_secs(u64::from(COUNTDOWN_SECONDS)));
+            }
         } else if self.phase != GamePhase::Running {
             if both_ready {
                 if self.phase != GamePhase::Countdown {
@@ -259,12 +333,21 @@ impl Room {
                 self.rider_input = RiderInput::default();
                 self.last_rider_input_at = None;
             }
+            if self.last_gunner_input_at.is_some_and(|last_input| {
+                now.duration_since(last_input) > Duration::from_millis(200)
+            }) {
+                self.gunner_input = GunnerInput::default();
+                self.last_gunner_input_at = None;
+            }
             self.bike.step(self.rider_input, 1.0 / SIMULATION_HZ as f32);
             self.last_applied_rider_sequence = self
                 .seats
                 .get(&SeatKind::Rider)
                 .map_or(0, |slot| slot.last_sequence);
+            self.update_gunner_lock();
             self.step_helicopter();
+            self.step_player_missile();
+            self.finish_if_needed();
         }
 
         while self
@@ -370,6 +453,7 @@ impl Room {
                         let hit = dx.hypot(dz) <= ROCKET_BLAST_RADIUS_M;
                         if hit {
                             self.rocket_hit_count = self.rocket_hit_count.saturating_add(1);
+                            self.bike_health = self.bike_health.saturating_sub(BIKE_ROCKET_DAMAGE);
                         }
                         self.rocket = None;
                         helicopter.phase = HelicopterPhase::Repositioning;
@@ -384,6 +468,15 @@ impl Room {
                             },
                             rocket.impact_position,
                         );
+                        if hit {
+                            self.push_combat_event(
+                                rocket.attack_id,
+                                CombatEventKind::BikeDamaged {
+                                    health_remaining: self.bike_health,
+                                },
+                                rocket.impact_position,
+                            );
+                        }
                     } else {
                         self.rocket = Some(rocket);
                     }
@@ -411,6 +504,229 @@ impl Room {
         self.helicopter = Some(helicopter);
     }
 
+    fn update_gunner_lock(&mut self) {
+        if !self.gunner_input.aim_held
+            || self.last_gunner_input_at.is_none()
+            || self.helicopter_health == 0
+        {
+            self.clear_gunner_lock();
+            return;
+        }
+        let Some(helicopter) = self.helicopter else {
+            self.clear_gunner_lock();
+            return;
+        };
+        let aim = evaluate_gunner_aim(self.bike, self.gunner_input, helicopter.position);
+        if !aim.in_range || aim.obstructed {
+            self.clear_gunner_lock();
+            return;
+        }
+        if aim.in_cone {
+            self.gunner_lock_outside_since_tick = None;
+            self.gunner_lock_progress_ticks =
+                (self.gunner_lock_progress_ticks + 1).min(GUNNER_LOCK_TICKS);
+        } else if self.gunner_lock_progress_ticks > 0 {
+            let outside_since = *self.gunner_lock_outside_since_tick.get_or_insert(self.tick);
+            if self.tick.saturating_sub(outside_since) > GUNNER_LOCK_GRACE_TICKS {
+                self.clear_gunner_lock();
+            }
+        }
+    }
+
+    fn clear_gunner_lock(&mut self) {
+        self.gunner_lock_progress_ticks = 0;
+        self.gunner_lock_outside_since_tick = None;
+    }
+
+    fn gunner_can_fire(&self, now: Instant) -> bool {
+        self.fire_rejection_reason(self.tick, now).is_none()
+    }
+
+    fn fire_rejection_reason(
+        &self,
+        request_tick: u64,
+        now: Instant,
+    ) -> Option<FireRejectionReason> {
+        if self.phase != GamePhase::Running {
+            return Some(FireRejectionReason::NotRunning);
+        }
+        if !input_tick_is_valid(self.tick, request_tick)
+            || self
+                .last_gunner_input_at
+                .is_none_or(|last| now.saturating_duration_since(last) > Duration::from_millis(200))
+        {
+            return Some(FireRejectionReason::StaleInput);
+        }
+        if !self.gunner_input.aim_held {
+            return Some(FireRejectionReason::NotAiming);
+        }
+        let Some(helicopter) = self.helicopter.filter(|_| self.helicopter_health > 0) else {
+            return Some(FireRejectionReason::NoTarget);
+        };
+        let aim = evaluate_gunner_aim(self.bike, self.gunner_input, helicopter.position);
+        if !aim.in_range {
+            return Some(FireRejectionReason::OutOfRange);
+        }
+        if aim.obstructed {
+            return Some(FireRejectionReason::Obstructed);
+        }
+        if !aim.in_cone {
+            return Some(FireRejectionReason::TargetOutsideCone);
+        }
+        if self.tick < self.fire_cooldown_until_tick {
+            return Some(FireRejectionReason::Cooldown);
+        }
+        if self.gunner_ammo == 0 {
+            return Some(FireRejectionReason::NoAmmo);
+        }
+        if self.player_missile.is_some() {
+            return Some(FireRejectionReason::MissileInFlight);
+        }
+        if self.gunner_lock_progress_ticks < GUNNER_LOCK_TICKS
+            || self.gunner_lock_outside_since_tick.is_some()
+        {
+            return Some(FireRejectionReason::NotLocked);
+        }
+        None
+    }
+
+    fn step_player_missile(&mut self) {
+        let Some(mut missile) = self.player_missile else {
+            return;
+        };
+        let Some(helicopter) = self.helicopter.filter(|_| self.helicopter_health > 0) else {
+            self.player_missile = None;
+            return;
+        };
+        let target = helicopter.position;
+        let dx = target.x - missile.position.x;
+        let dy = target.y - missile.position.y;
+        let dz = target.z - missile.position.z;
+        let distance = (dx * dx + dy * dy + dz * dz).sqrt();
+        let travel = PLAYER_MISSILE_SPEED_MPS / SIMULATION_HZ as f32;
+        if distance <= travel + PLAYER_MISSILE_HIT_RADIUS_M {
+            self.helicopter_health = self.helicopter_health.saturating_sub(PLAYER_MISSILE_DAMAGE);
+            self.player_missile = None;
+            self.push_combat_event(
+                missile.attack_id,
+                CombatEventKind::PlayerMissileImpacted {
+                    hit: true,
+                    helicopter_health: self.helicopter_health,
+                },
+                target,
+            );
+        } else if self.tick >= missile.expires_tick {
+            self.player_missile = None;
+            self.push_combat_event(
+                missile.attack_id,
+                CombatEventKind::PlayerMissileImpacted {
+                    hit: false,
+                    helicopter_health: self.helicopter_health,
+                },
+                missile.position,
+            );
+        } else {
+            missile.position = WorldPosition {
+                x: missile.position.x + dx / distance * travel,
+                y: missile.position.y + dy / distance * travel,
+                z: missile.position.z + dz / distance * travel,
+            };
+            self.player_missile = Some(missile);
+        }
+    }
+
+    fn finish_if_needed(&mut self) {
+        if self.phase != GamePhase::Running {
+            return;
+        }
+        let result = if self.bike_health == 0 {
+            Some(MatchResult::RidersDefeat)
+        } else if self.helicopter_health == 0 {
+            Some(MatchResult::RidersVictory)
+        } else {
+            None
+        };
+        let Some(result) = result else {
+            return;
+        };
+        self.phase = GamePhase::Finished;
+        self.match_result = Some(result);
+        self.countdown_deadline = None;
+        for slot in self.seats.values_mut() {
+            slot.ready = false;
+        }
+        self.rider_input = RiderInput::default();
+        self.last_rider_input_at = None;
+        self.gunner_input = GunnerInput::default();
+        self.last_gunner_input_at = None;
+        self.clear_gunner_lock();
+        self.player_missile = None;
+        self.rocket = None;
+        self.helicopter = None;
+        self.push_combat_event(
+            0,
+            CombatEventKind::MatchFinished { result },
+            WorldPosition {
+                x: self.bike.x,
+                y: 0.0,
+                z: self.bike.z,
+            },
+        );
+    }
+
+    fn handle_fire_request(&mut self, request_id: u64, request_tick: u64, now: Instant) {
+        if request_id == 0 {
+            return;
+        }
+        let slot = self
+            .seats
+            .get_mut(&SeatKind::Gunner)
+            .expect("Gunner seat is part of the required room");
+        if request_id <= slot.last_fire_request_id {
+            return;
+        }
+        slot.last_fire_request_id = request_id;
+        if let Some(reason) = self.fire_rejection_reason(request_tick, now) {
+            self.push_combat_event(
+                0,
+                CombatEventKind::GunnerFireRejected { request_id, reason },
+                WorldPosition {
+                    x: self.bike.x,
+                    y: 0.0,
+                    z: self.bike.z,
+                },
+            );
+            return;
+        }
+
+        let attack_id = self.next_attack_id;
+        self.next_attack_id = self.next_attack_id.saturating_add(1);
+        let yaw = self.bike.yaw + std::f32::consts::PI;
+        let launch_position = WorldPosition {
+            x: self.bike.x - yaw.sin() * riverside_common::GUNNER_AIM_ORIGIN_REAR_M,
+            y: riverside_common::GUNNER_AIM_ORIGIN_HEIGHT_M,
+            z: self.bike.z - yaw.cos() * riverside_common::GUNNER_AIM_ORIGIN_REAR_M,
+        };
+        self.gunner_ammo = self.gunner_ammo.saturating_sub(1);
+        self.fire_cooldown_until_tick = self.tick + GUNNER_FIRE_COOLDOWN_TICKS;
+        self.player_missile = Some(PlayerMissileSnapshot {
+            attack_id,
+            launch_position,
+            position: launch_position,
+            launch_tick: self.tick,
+            expires_tick: self.tick + PLAYER_MISSILE_LIFETIME_TICKS,
+        });
+        self.clear_gunner_lock();
+        self.push_combat_event(
+            attack_id,
+            CombatEventKind::GunnerFireAccepted {
+                request_id,
+                ammo_remaining: self.gunner_ammo,
+            },
+            launch_position,
+        );
+    }
+
     fn push_combat_event(
         &mut self,
         attack_id: u64,
@@ -435,11 +751,28 @@ impl Room {
         self.solo_seat = Some(seat);
         self.rider_input = RiderInput::default();
         self.last_rider_input_at = None;
+        self.gunner_input = GunnerInput::default();
+        self.last_gunner_input_at = None;
+        self.clear_gunner_lock();
         true
     }
 
     fn receive(&mut self, player_id: u64, seat: SeatKind, message: ClientMessage) {
         let phase = self.phase;
+        if let ClientMessage::FireRequest { request_id, tick } = &message {
+            let authorized = seat == SeatKind::Gunner
+                && self
+                    .solo_player_id
+                    .is_none_or(|_| self.solo_seat == Some(seat))
+                && self
+                    .seats
+                    .get(&SeatKind::Gunner)
+                    .is_some_and(|slot| slot.player_id == Some(player_id));
+            if authorized {
+                self.handle_fire_request(*request_id, *tick, Instant::now());
+            }
+            return;
+        }
         if matches!(&message, ClientMessage::ForceStartSolo) {
             if self.solo_player_id == Some(player_id) && phase != GamePhase::Running {
                 for slot in self.seats.values_mut() {
@@ -486,23 +819,31 @@ impl Room {
             } if seat == SeatKind::Gunner && phase == GamePhase::Running => {
                 if sequence > slot.last_sequence && input_tick_is_valid(self.tick, tick) {
                     input.yaw = if input.yaw.is_finite() {
-                        input.yaw.clamp(-1.92, 1.92)
+                        normalize_yaw(input.yaw)
                     } else {
                         0.0
                     };
                     input.pitch = if input.pitch.is_finite() {
-                        input.pitch.clamp(-0.55, 0.45)
+                        input.pitch.clamp(
+                            riverside_common::GUNNER_PITCH_MIN_RADIANS,
+                            riverside_common::GUNNER_PITCH_MAX_RADIANS,
+                        )
                     } else {
                         0.0
                     };
                     self.gunner_input = input;
+                    self.last_gunner_input_at = Some(Instant::now());
                     slot.last_sequence = sequence;
+                    if !input.aim_held {
+                        self.clear_gunner_lock();
+                    }
                 }
             }
             ClientMessage::ForceStartSolo
             | ClientMessage::SwitchSeat { .. }
             | ClientMessage::RiderInput { .. }
-            | ClientMessage::GunnerInput { .. } => {}
+            | ClientMessage::GunnerInput { .. }
+            | ClientMessage::FireRequest { .. } => {}
         }
     }
 
@@ -525,6 +866,10 @@ impl Room {
 fn input_tick_is_valid(server_tick: u64, input_tick: u64) -> bool {
     input_tick.saturating_add(MAX_INPUT_TICK_AGE) >= server_tick
         && input_tick <= server_tick.saturating_add(MAX_INPUT_TICK_FUTURE)
+}
+
+fn normalize_yaw(yaw: f32) -> f32 {
+    (yaw + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI
 }
 
 fn move_toward(current: &mut WorldPosition, target: WorldPosition, max_distance: f32) {
@@ -759,9 +1104,12 @@ fn tick_room(runtime: Res<ServerRuntime>) {
 mod tests {
     use super::{Room, input_tick_is_valid};
     use riverside_common::{
-        ClientMessage, CombatEventKind, GamePhase, GunnerInput, HELICOPTER_CHASE_TICKS,
-        HelicopterPhase, REQUIRED_SEATS, ROCKET_BLAST_RADIUS_M, ROCKET_FLIGHT_TICKS,
-        ROCKET_WARNING_TICKS, RiderInput, SIMULATION_HZ,
+        BIKE_ROCKET_DAMAGE, BIKE_STARTING_HEALTH, BikeState, ClientMessage, CombatEventKind,
+        FireRejectionReason, GUNNER_AIM_ORIGIN_HEIGHT_M, GUNNER_AIM_ORIGIN_REAR_M,
+        GUNNER_LOCK_GRACE_TICKS, GUNNER_LOCK_TICKS, GUNNER_STARTING_AMMO, GamePhase, GunnerInput,
+        HELICOPTER_CHASE_TICKS, HELICOPTER_STARTING_HEALTH, HelicopterPhase, MatchResult,
+        PLAYER_MISSILE_DAMAGE, REQUIRED_SEATS, ROCKET_BLAST_RADIUS_M, ROCKET_FLIGHT_TICKS,
+        ROCKET_WARNING_TICKS, RiderInput, SIMULATION_HZ, WorldPosition,
     };
     use std::{
         collections::BTreeSet,
@@ -845,7 +1193,47 @@ mod tests {
         *now += Duration::from_secs_f64(1.0 / f64::from(super::SIMULATION_HZ));
         room.rider_input = input;
         room.last_rider_input_at = Some(*now);
+        if room.gunner_input.aim_held {
+            room.last_gunner_input_at = Some(*now);
+        }
         let _ = room.advance_tick(*now);
+    }
+
+    fn gunner_input_for_helicopter(room: &Room, aim_held: bool) -> GunnerInput {
+        let target = room.helicopter.expect("running helicopter").position;
+        let bike = room.bike;
+        let home_yaw = bike.yaw + std::f32::consts::PI;
+        let origin = WorldPosition {
+            x: bike.x - home_yaw.sin() * GUNNER_AIM_ORIGIN_REAR_M,
+            y: GUNNER_AIM_ORIGIN_HEIGHT_M,
+            z: bike.z - home_yaw.cos() * GUNNER_AIM_ORIGIN_REAR_M,
+        };
+        let dx = target.x - origin.x;
+        let dy = target.y - origin.y;
+        let dz = target.z - origin.z;
+        let target_yaw = (-dx).atan2(-dz);
+        GunnerInput {
+            yaw: target_yaw - bike.yaw - std::f32::consts::PI,
+            pitch: dy.atan2(dx.hypot(dz)),
+            aim_held,
+        }
+    }
+
+    fn force_locked_aim(room: &mut Room) {
+        room.gunner_input = gunner_input_for_helicopter(room, true);
+        room.last_gunner_input_at = Some(Instant::now());
+        room.gunner_lock_progress_ticks = GUNNER_LOCK_TICKS;
+        room.gunner_lock_outside_since_tick = None;
+    }
+
+    fn run_missile_until_impact(room: &mut Room) {
+        for _ in 0..super::PLAYER_MISSILE_LIFETIME_TICKS {
+            if room.player_missile.is_none() {
+                break;
+            }
+            room.tick += 1;
+            room.step_player_missile();
+        }
     }
 
     fn warning_event(room: &Room) -> super::CombatEvent {
@@ -942,7 +1330,7 @@ mod tests {
             step_room(&mut room, &mut now, RiderInput::default());
         }
         assert_eq!(room.rocket_hit_count, 1);
-        assert_eq!(room.recent_combat_events.len(), 3);
+        assert_eq!(room.recent_combat_events.len(), 4);
         assert_eq!(
             room.recent_combat_events
                 .iter()
@@ -1011,5 +1399,436 @@ mod tests {
             step_room(&mut room, &mut now, RiderInput::default());
         }
         assert!(warning_event(&room).event_id > warning_id);
+    }
+
+    #[test]
+    fn server_lock_needs_two_seconds_and_applies_the_short_grace_window() {
+        let mut now = Instant::now();
+        let mut room = running_room();
+        room.gunner_input = gunner_input_for_helicopter(&room, true);
+        for _ in 0..GUNNER_LOCK_TICKS {
+            step_room(&mut room, &mut now, RiderInput::default());
+        }
+        assert_eq!(room.gunner_lock_progress_ticks, GUNNER_LOCK_TICKS);
+        assert!(room.gunner_can_fire(now));
+
+        room.gunner_input.yaw += 0.2;
+        for _ in 0..GUNNER_LOCK_GRACE_TICKS {
+            step_room(&mut room, &mut now, RiderInput::default());
+        }
+        assert_eq!(room.gunner_lock_progress_ticks, GUNNER_LOCK_TICKS);
+        assert!(room.gunner_lock_outside_since_tick.is_some());
+        assert!(!room.gunner_can_fire(now));
+
+        room.gunner_input = gunner_input_for_helicopter(&room, true);
+        step_room(&mut room, &mut now, RiderInput::default());
+        assert_eq!(room.gunner_lock_progress_ticks, GUNNER_LOCK_TICKS);
+        assert!(room.gunner_lock_outside_since_tick.is_none());
+
+        room.gunner_input.yaw += 0.2;
+        for _ in 0..(GUNNER_LOCK_GRACE_TICKS + 2) {
+            step_room(&mut room, &mut now, RiderInput::default());
+        }
+        assert_eq!(room.gunner_lock_progress_ticks, 0);
+        assert!(room.gunner_lock_outside_since_tick.is_none());
+    }
+
+    #[test]
+    fn releasing_aim_clears_authoritative_lock_immediately() {
+        let mut room = running_room();
+        force_locked_aim(&mut room);
+        room.receive(
+            2,
+            super::SeatKind::Gunner,
+            ClientMessage::GunnerInput {
+                sequence: 1,
+                tick: room.tick,
+                input: gunner_input_for_helicopter(&room, false),
+            },
+        );
+        assert_eq!(room.gunner_lock_progress_ticks, 0);
+        assert!(room.gunner_lock_outside_since_tick.is_none());
+    }
+
+    #[test]
+    fn fire_request_is_authorized_deduplicated_and_only_success_spends_ammo() {
+        let mut room = running_room();
+        force_locked_aim(&mut room);
+        let tick = room.tick;
+        room.receive(
+            2,
+            super::SeatKind::Gunner,
+            ClientMessage::FireRequest {
+                request_id: 1,
+                tick,
+            },
+        );
+        assert_eq!(room.gunner_ammo, GUNNER_STARTING_AMMO - 1);
+        assert_eq!(room.player_missile.unwrap().attack_id, 1);
+        assert_eq!(room.gunner_lock_progress_ticks, 0);
+        assert!(room.recent_combat_events.iter().any(|event| matches!(
+            event.kind,
+            CombatEventKind::GunnerFireAccepted {
+                request_id: 1,
+                ammo_remaining: 5
+            }
+        )));
+
+        let event_count = room.recent_combat_events.len();
+        room.receive(
+            2,
+            super::SeatKind::Gunner,
+            ClientMessage::FireRequest {
+                request_id: 1,
+                tick,
+            },
+        );
+        assert_eq!(room.gunner_ammo, GUNNER_STARTING_AMMO - 1);
+        assert_eq!(room.next_attack_id, 2);
+        assert_eq!(room.recent_combat_events.len(), event_count);
+
+        room.receive(
+            2,
+            super::SeatKind::Gunner,
+            ClientMessage::FireRequest {
+                request_id: 2,
+                tick: room.tick,
+            },
+        );
+        assert!(room.recent_combat_events.iter().any(|event| matches!(
+            event.kind,
+            CombatEventKind::GunnerFireRejected {
+                request_id: 2,
+                reason: FireRejectionReason::Cooldown
+            }
+        )));
+        assert_eq!(room.gunner_ammo, GUNNER_STARTING_AMMO - 1);
+
+        room.player_missile = None;
+        room.fire_cooldown_until_tick = room.tick;
+        room.gunner_ammo = 0;
+        force_locked_aim(&mut room);
+        room.receive(
+            2,
+            super::SeatKind::Gunner,
+            ClientMessage::FireRequest {
+                request_id: 3,
+                tick: room.tick,
+            },
+        );
+        assert!(room.recent_combat_events.iter().any(|event| matches!(
+            event.kind,
+            CombatEventKind::GunnerFireRejected {
+                request_id: 3,
+                reason: FireRejectionReason::NoAmmo
+            }
+        )));
+        assert_eq!(room.player_missile, None);
+    }
+
+    #[test]
+    fn untrusted_fire_requests_cannot_bypass_seat_phase_lock_or_tick_checks() {
+        let mut room = running_room();
+        let tick = room.tick;
+        room.receive(
+            1,
+            super::SeatKind::Rider,
+            ClientMessage::FireRequest {
+                request_id: 40,
+                tick,
+            },
+        );
+        assert!(room.recent_combat_events.is_empty());
+        assert_eq!(room.gunner_ammo, GUNNER_STARTING_AMMO);
+
+        room.tick = 1_000;
+        force_locked_aim(&mut room);
+        room.receive(
+            2,
+            super::SeatKind::Gunner,
+            ClientMessage::FireRequest {
+                request_id: 1,
+                tick: room.tick.saturating_sub(super::MAX_INPUT_TICK_AGE + 1),
+            },
+        );
+        assert!(room.recent_combat_events.iter().any(|event| matches!(
+            event.kind,
+            CombatEventKind::GunnerFireRejected {
+                request_id: 1,
+                reason: FireRejectionReason::StaleInput
+            }
+        )));
+        assert_eq!(room.gunner_ammo, GUNNER_STARTING_AMMO);
+
+        room.gunner_input = gunner_input_for_helicopter(&room, false);
+        room.last_gunner_input_at = Some(Instant::now());
+        room.receive(
+            2,
+            super::SeatKind::Gunner,
+            ClientMessage::FireRequest {
+                request_id: 2,
+                tick: room.tick,
+            },
+        );
+        assert!(room.recent_combat_events.iter().any(|event| matches!(
+            event.kind,
+            CombatEventKind::GunnerFireRejected {
+                request_id: 2,
+                reason: FireRejectionReason::NotAiming
+            }
+        )));
+
+        room.phase = GamePhase::Finished;
+        room.match_result = Some(MatchResult::RidersDefeat);
+        room.receive(
+            2,
+            super::SeatKind::Gunner,
+            ClientMessage::FireRequest {
+                request_id: 3,
+                tick: room.tick,
+            },
+        );
+        assert!(room.recent_combat_events.iter().any(|event| matches!(
+            event.kind,
+            CombatEventKind::GunnerFireRejected {
+                request_id: 3,
+                reason: FireRejectionReason::NotRunning
+            }
+        )));
+        assert_eq!(room.gunner_ammo, GUNNER_STARTING_AMMO);
+    }
+
+    #[test]
+    fn fire_rejects_out_of_cone_out_of_range_and_obstructed_targets() {
+        let mut room = running_room();
+        force_locked_aim(&mut room);
+        room.gunner_lock_progress_ticks = 0;
+        room.gunner_input.yaw += 0.2;
+        room.receive(
+            2,
+            super::SeatKind::Gunner,
+            ClientMessage::FireRequest {
+                request_id: 1,
+                tick: room.tick,
+            },
+        );
+        assert!(room.recent_combat_events.iter().any(|event| matches!(
+            event.kind,
+            CombatEventKind::GunnerFireRejected {
+                request_id: 1,
+                reason: FireRejectionReason::TargetOutsideCone
+            }
+        )));
+
+        let mut helicopter = room.helicopter.unwrap();
+        helicopter.position.z = room.bike.z + 160.0;
+        room.helicopter = Some(helicopter);
+        room.gunner_input = gunner_input_for_helicopter(&room, true);
+        room.last_gunner_input_at = Some(Instant::now());
+        room.receive(
+            2,
+            super::SeatKind::Gunner,
+            ClientMessage::FireRequest {
+                request_id: 2,
+                tick: room.tick,
+            },
+        );
+        assert!(room.recent_combat_events.iter().any(|event| matches!(
+            event.kind,
+            CombatEventKind::GunnerFireRejected {
+                request_id: 2,
+                reason: FireRejectionReason::OutOfRange
+            }
+        )));
+
+        room.bike.z = -44.0;
+        helicopter.position = WorldPosition {
+            x: -0.55,
+            y: 0.5,
+            z: -30.0,
+        };
+        room.helicopter = Some(helicopter);
+        room.gunner_input = gunner_input_for_helicopter(&room, true);
+        room.last_gunner_input_at = Some(Instant::now());
+        room.receive(
+            2,
+            super::SeatKind::Gunner,
+            ClientMessage::FireRequest {
+                request_id: 3,
+                tick: room.tick,
+            },
+        );
+        assert!(room.recent_combat_events.iter().any(|event| matches!(
+            event.kind,
+            CombatEventKind::GunnerFireRejected {
+                request_id: 3,
+                reason: FireRejectionReason::Obstructed
+            }
+        )));
+        assert_eq!(room.gunner_ammo, GUNNER_STARTING_AMMO);
+        assert_eq!(room.player_missile, None);
+    }
+
+    #[test]
+    fn player_missiles_apply_exact_damage_and_three_hits_win_once() {
+        let mut room = running_room();
+        for request_id in 1..=3 {
+            force_locked_aim(&mut room);
+            room.fire_cooldown_until_tick = room.tick;
+            room.handle_fire_request(request_id, room.tick, Instant::now());
+            run_missile_until_impact(&mut room);
+            assert_eq!(
+                room.helicopter_health,
+                HELICOPTER_STARTING_HEALTH
+                    .saturating_sub(request_id as u16 * PLAYER_MISSILE_DAMAGE)
+            );
+            if request_id < 3 {
+                assert_eq!(room.phase, GamePhase::Running);
+            }
+        }
+        room.finish_if_needed();
+        assert_eq!(room.phase, GamePhase::Finished);
+        assert_eq!(room.match_result, Some(MatchResult::RidersVictory));
+        assert_eq!(room.gunner_ammo, GUNNER_STARTING_AMMO - 3);
+        assert_eq!(room.player_missile, None);
+        assert!(room.seats.values().all(|slot| !slot.ready));
+        assert_eq!(
+            room.recent_combat_events
+                .iter()
+                .filter(|event| matches!(
+                    event.kind,
+                    CombatEventKind::MatchFinished {
+                        result: MatchResult::RidersVictory
+                    }
+                ))
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn rocket_damage_and_simultaneous_finish_use_defeat_priority() {
+        let mut room = running_room();
+        room.bike_health = BIKE_ROCKET_DAMAGE;
+        room.helicopter_health = PLAYER_MISSILE_DAMAGE;
+        let helicopter = room.helicopter.unwrap();
+        room.helicopter = Some(super::HelicopterSnapshot {
+            phase: HelicopterPhase::RocketInFlight,
+            ..helicopter
+        });
+        room.rocket = Some(super::RocketSnapshot {
+            attack_id: 77,
+            launch_position: helicopter.position,
+            position: helicopter.position,
+            impact_position: WorldPosition {
+                x: room.bike.x,
+                y: 0.0,
+                z: room.bike.z,
+            },
+            launch_tick: room.tick,
+            impact_tick: room.tick + 1,
+        });
+        room.player_missile = Some(super::PlayerMissileSnapshot {
+            attack_id: 78,
+            launch_position: helicopter.position,
+            position: helicopter.position,
+            launch_tick: room.tick,
+            expires_tick: room.tick + 60,
+        });
+        let now = Instant::now();
+        room.advance_tick(now);
+
+        assert_eq!(room.phase, GamePhase::Finished);
+        assert_eq!(room.bike_health, 0);
+        assert_eq!(room.helicopter_health, 0);
+        assert_eq!(room.match_result, Some(MatchResult::RidersDefeat));
+        assert!(room.rocket.is_none());
+        assert!(room.player_missile.is_none());
+        assert!(room.helicopter.is_none());
+        assert!(room.recent_combat_events.iter().any(|event| matches!(
+            event.kind,
+            CombatEventKind::BikeDamaged {
+                health_remaining: 0
+            }
+        )));
+    }
+
+    #[test]
+    fn both_players_ready_after_finished_resets_battle_and_starts_a_five_second_countdown() {
+        let mut room = running_room();
+        room.phase = GamePhase::Finished;
+        room.match_result = Some(MatchResult::RidersVictory);
+        room.bike_health = 0;
+        room.helicopter_health = 0;
+        room.gunner_ammo = 1;
+        room.gunner_lock_progress_ticks = GUNNER_LOCK_TICKS;
+        room.rocket = Some(super::RocketSnapshot {
+            attack_id: 10,
+            launch_position: WorldPosition::default(),
+            position: WorldPosition::default(),
+            impact_position: WorldPosition::default(),
+            launch_tick: room.tick,
+            impact_tick: room.tick + 1,
+        });
+        room.player_missile = Some(super::PlayerMissileSnapshot {
+            attack_id: 11,
+            launch_position: WorldPosition::default(),
+            position: WorldPosition::default(),
+            launch_tick: room.tick,
+            expires_tick: room.tick + 1,
+        });
+        for seat in REQUIRED_SEATS {
+            room.seats.get_mut(&seat).unwrap().ready = false;
+        }
+        let now = Instant::now();
+        room.receive(
+            1,
+            super::SeatKind::Rider,
+            ClientMessage::SetReady { ready: true },
+        );
+        room.receive(
+            2,
+            super::SeatKind::Gunner,
+            ClientMessage::SetReady { ready: true },
+        );
+        room.advance_tick(now);
+        assert_eq!(room.phase, GamePhase::Countdown);
+        assert_eq!(room.countdown_deadline, Some(now + Duration::from_secs(5)));
+        assert_eq!(room.bike, BikeState::default());
+        assert_eq!(room.bike_health, BIKE_STARTING_HEALTH);
+        assert_eq!(room.helicopter_health, HELICOPTER_STARTING_HEALTH);
+        assert_eq!(room.gunner_ammo, GUNNER_STARTING_AMMO);
+        assert_eq!(room.gunner_lock_progress_ticks, 0);
+        assert_eq!(room.rocket, None);
+        assert_eq!(room.player_missile, None);
+        assert_eq!(room.match_result, None);
+        assert!(room.recent_combat_events.is_empty());
+        assert!(REQUIRED_SEATS.iter().all(|seat| room.seats[seat].ready));
+
+        room.advance_tick(now + Duration::from_secs(5));
+        assert_eq!(room.phase, GamePhase::Running);
+        assert_eq!(room.helicopter_health, HELICOPTER_STARTING_HEALTH);
+        assert!(room.helicopter.is_some());
+    }
+
+    #[test]
+    fn solo_role_change_clears_lock_without_refilling_health_or_ammo() {
+        let mut room = running_room();
+        room.solo_player_id = Some(42);
+        room.solo_seat = Some(super::SeatKind::Gunner);
+        for slot in room.seats.values_mut() {
+            slot.player_id = Some(42);
+        }
+        room.bike_health = 50;
+        room.helicopter_health = 66;
+        room.gunner_ammo = 4;
+        force_locked_aim(&mut room);
+
+        assert!(room.switch_solo_seat(42, super::SeatKind::Rider));
+        assert_eq!(room.gunner_lock_progress_ticks, 0);
+        assert_eq!(room.gunner_input, GunnerInput::default());
+        assert_eq!(room.bike_health, 50);
+        assert_eq!(room.helicopter_health, 66);
+        assert_eq!(room.gunner_ammo, 4);
     }
 }
