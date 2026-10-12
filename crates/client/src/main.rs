@@ -1,5 +1,7 @@
+mod animation;
 mod game;
 mod network;
+mod scenery;
 
 use bevy::{
     asset::{AssetMetaCheck, AssetPlugin},
@@ -12,6 +14,7 @@ use network::NetworkClient;
 fn main() {
     App::new()
         .insert_resource(GameSession::default())
+        .init_resource::<animation::MotionClock>()
         .insert_resource(NetworkClient::default())
         .add_plugins(
             DefaultPlugins
@@ -32,17 +35,30 @@ fn main() {
                     ..default()
                 }),
         )
-        .add_systems(Startup, (game::setup_scene, network::connect_browser))
+        .add_systems(
+            Startup,
+            (
+                game::setup_scene,
+                animation::spawn_weapons,
+                network::connect_browser,
+            )
+                .chain(),
+        )
         .add_systems(
             Update,
             (
                 network::pump_network,
+                game::rebuild_course_visuals,
+                game::knock_cones,
                 game::capture_input,
                 game::simulate_bike,
                 game::apply_world_transforms,
                 game::apply_steering_visual,
                 game::update_combat_visuals,
                 game::update_camera,
+                animation::bind_parts,
+                animation::animate_parts,
+                animation::update_weapons,
                 game::update_hud,
                 network::flush_outgoing,
                 network::refresh_diagnostics,

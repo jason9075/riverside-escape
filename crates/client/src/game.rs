@@ -1,4 +1,7 @@
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::{
+    collections::{BTreeMap, BTreeSet, VecDeque},
+    sync::Arc,
+};
 
 use bevy::{
     gltf::GltfAssetLabel,
@@ -8,24 +11,50 @@ use bevy::{
     world_serialization::WorldAssetRoot,
 };
 use riverside_common::{
-    BIKE_STARTING_HEALTH, BRIDGE_DECK_BOTTOM_M, BRIDGE_DECK_HALF_WIDTH_M, BRIDGE_DECK_TOP_M,
-    BRIDGE_SPAN_LENGTH_M, BikeRenderOffset, BikeState, ClientMessage, CombatEvent, CombatEventKind,
-    CoverKind, FIXED_DT_SECONDS, FireRejectionReason, GUNNER_LOCK_CONE_HALF_ANGLE_DEGREES,
-    GUNNER_LOCK_TICKS, GUNNER_PITCH_MAX_RADIANS, GUNNER_PITCH_MIN_RADIANS, GUNNER_STARTING_AMMO,
-    GamePhase, GunnerInput, HELICOPTER_ALTITUDE_M, HELICOPTER_STARTING_HEALTH, HelicopterSnapshot,
-    MatchResult, MatchVictoryReason, OBSTACLES, ObstacleKind, PlayerMissileSnapshot,
-    REQUIRED_SEATS, ROAD_STRAIGHT_LENGTH_M, ROCKET_BLAST_RADIUS_M, RiderInput, RiderInputSample,
-    RiderPrediction, RoadPieceKind, RoadSection, RocketSnapshot, SIMULATION_HZ, SeatKind,
-    SeatStatus, SnapshotInterpolator, WorldPosition, WorldSnapshot, evaluate_gunner_aim,
-    riverside_course,
+    AUTHORED_COURSE_SEED, BIKE_STARTING_HEALTH, BRIDGE_DECK_BOTTOM_M, BRIDGE_DECK_HALF_WIDTH_M,
+    BRIDGE_DECK_TOP_M, BRIDGE_SPAN_LENGTH_M, BikeRenderOffset, BikeState, ClientMessage,
+    CombatEvent, CombatEventKind, CoverKind, FIXED_DT_SECONDS, FireRejectionReason,
+    GUNNER_LOCK_CONE_HALF_ANGLE_DEGREES, GUNNER_LOCK_TICKS, GUNNER_PITCH_MAX_RADIANS,
+    GUNNER_PITCH_MIN_RADIANS, GUNNER_STARTING_AMMO, GamePhase, GunnerInput, HELICOPTER_ALTITUDE_M,
+    HELICOPTER_STARTING_HEALTH, HelicopterSnapshot, MAX_FRONT_STEER_ANGLE, MAX_SPEED, MatchResult,
+    MatchVictoryReason, ObstacleKind, PlayerMissileSnapshot, REQUIRED_SEATS, ROCKET_BLAST_RADIUS_M,
+    RiderInput, RiderInputSample, RiderPrediction, RiversideCourse, RoadSection, RocketSnapshot,
+    SIMULATION_HZ, SeatKind, SeatStatus, SnapshotInterpolator, WorldPosition, WorldSnapshot,
+    course_for_seed, evaluate_gunner_aim, riverside_course,
 };
 
 use crate::network::NetworkClient;
+use riverside_common::{
+    SHOTGUN_AIM_SPREAD, SHOTGUN_HIP_SPREAD, SHOTGUN_PELLETS, SHOTGUN_STARTING_AMMO, WeaponKind,
+    gunner_aim_direction, gunner_aim_origin, trace_shotgun,
+};
+
+/// How long a shotgun blast's pellet lines stay on screen.
+pub(super) const SHOTGUN_TRACER_SECS: f32 = 0.18;
+
+/// Pellet lines stored relative to the Gunner's aim origin, so they are drawn
+/// from wherever the bike is rendered now rather than where the Server saw
+/// it one network delay ago.
+#[derive(Clone, Copy, Debug)]
+pub struct ShotgunTracer {
+    pub request_id: u64,
+    pub rays: [Vec3; SHOTGUN_PELLETS],
+    pub secs_remaining: f32,
+}
 
 const CAMERA_RETURN_SPEED: f32 = 6.0;
 const MOUSE_SENSITIVITY: f32 = 0.004;
 const GUNNER_HOME_YAW: f32 = std::f32::consts::PI;
 const RIDER_CAMERA_PITCH: f32 = -0.19;
+const CAMERA_BASE_FOV: f32 = std::f32::consts::PI / 3.0;
+/// Rider-only speed feel: the chase camera widens and pulls back with speed.
+const RIDER_TOP_SPEED_FOV: f32 = 74.0 * std::f32::consts::PI / 180.0;
+const RIDER_FOV_RESPONSE: f32 = 3.0;
+const RIDER_CAMERA_OFFSET: Vec3 = Vec3::new(0.0, 3.0, 6.6);
+const RIDER_CAMERA_TOP_SPEED_PULLBACK: Vec3 = Vec3::new(0.0, -0.35, 1.4);
+const RIDER_CAMERA_SHAKE_M: f32 = 0.18;
+const BIKE_MAX_VISUAL_LEAN: f32 = 0.38;
+const BIKE_LEAN_RESPONSE: f32 = 3.3;
 const GUNNER_SEAT: Vec3 = Vec3::new(0.0, 1.12, 0.94);
 const GUNNER_CAMERA_AIM: Vec3 = Vec3::new(0.0, 0.72, -0.09);
 const INPUT_SEND_INTERVAL_SECS: f64 = 1.0 / riverside_common::SNAPSHOT_HZ as f64;
@@ -91,6 +120,12 @@ pub struct GameSession {
     pub bike_health: u16,
     pub helicopter_health: u16,
     pub gunner_ammo: u8,
+    pub shotgun_ammo: u8,
+    pub rider_pedaling: bool,
+    pub gunner_ads: f32,
+    pub weapon_recoil: f32,
+    pub shotgun_tracer: Option<ShotgunTracer>,
+    pub visual_fire_cooldown: f32,
     pub gunner_lock_progress_ticks: u16,
     pub gunner_lock_grace_ticks_remaining: u16,
     pub gunner_locked: bool,
@@ -103,12 +138,17 @@ pub struct GameSession {
     pub route_checkpoints_passed: u8,
     pub route_checkpoints_total: u8,
     pub route_length_m: f32,
+    /// The round's course; rebuilt from the Server's seed between rounds.
+    pub course: Arc<RiversideCourse>,
+    pub course_visuals_stale: bool,
     pub combat_notice_secs: f32,
     pub last_combat_event: Option<CombatEvent>,
     pub explosion_position: Option<WorldPosition>,
     seen_combat_event_ids: BTreeSet<u64>,
     combat_event_order: VecDeque<u64>,
     pub collision_flash: f32,
+    pub bike_visual_lean: f32,
+    pub rider_camera_fov: f32,
     pub rider_camera_yaw: f32,
     pub rider_camera_pitch: f32,
     pub rider_free_look: bool,
@@ -176,6 +216,12 @@ impl Default for GameSession {
             bike_health: BIKE_STARTING_HEALTH,
             helicopter_health: HELICOPTER_STARTING_HEALTH,
             gunner_ammo: GUNNER_STARTING_AMMO,
+            shotgun_ammo: SHOTGUN_STARTING_AMMO,
+            rider_pedaling: false,
+            gunner_ads: 0.0,
+            weapon_recoil: 0.0,
+            shotgun_tracer: None,
+            visual_fire_cooldown: 0.0,
             gunner_lock_progress_ticks: 0,
             gunner_lock_grace_ticks_remaining: 0,
             gunner_locked: false,
@@ -188,12 +234,16 @@ impl Default for GameSession {
             route_checkpoints_passed: 0,
             route_checkpoints_total: 0,
             route_length_m: riverside_course().length_m(),
+            course: course_for_seed(AUTHORED_COURSE_SEED),
+            course_visuals_stale: false,
             combat_notice_secs: 0.0,
             last_combat_event: None,
             explosion_position: None,
             seen_combat_event_ids: BTreeSet::new(),
             combat_event_order: VecDeque::new(),
             collision_flash: 0.0,
+            bike_visual_lean: 0.0,
+            rider_camera_fov: CAMERA_BASE_FOV,
             rider_camera_yaw: 0.0,
             rider_camera_pitch: RIDER_CAMERA_PITCH,
             rider_free_look: false,
@@ -266,6 +316,8 @@ impl GameSession {
         self.client_tick = tick;
         self.last_applied_rider_sequence = ack;
         self.fire_feedback = None;
+        self.weapon_recoil = 0.0;
+        self.visual_fire_cooldown = 0.0;
         self.match_result = None;
         self.match_victory_reason = None;
         self.combat_notice_secs = 0.0;
@@ -282,6 +334,11 @@ impl GameSession {
     }
 
     pub fn apply_combat_snapshot(&mut self, snapshot: &WorldSnapshot) {
+        if snapshot.course_seed != self.course.seed() {
+            self.course = course_for_seed(snapshot.course_seed);
+            self.prediction.set_course(self.course.clone());
+            self.course_visuals_stale = true;
+        }
         self.route_section = snapshot.route_section;
         self.route_distance_m = snapshot.route_distance_m;
         self.route_checkpoints_passed = snapshot.route_checkpoints_passed;
@@ -291,6 +348,11 @@ impl GameSession {
         self.bike_health = snapshot.bike_health;
         self.helicopter_health = snapshot.helicopter_health;
         self.gunner_ammo = snapshot.gunner_ammo;
+        self.shotgun_ammo = snapshot.shotgun_ammo;
+        self.rider_pedaling = snapshot.rider_pedaling;
+        if self.local_seat != SeatKind::Gunner {
+            self.gunner_input = snapshot.gunner_input;
+        }
         self.gunner_lock_progress_ticks = snapshot.gunner_lock_progress_ticks;
         self.gunner_lock_grace_ticks_remaining = snapshot.gunner_lock_grace_ticks_remaining;
         self.gunner_locked = snapshot.gunner_locked;
@@ -339,10 +401,41 @@ impl GameSession {
                 self.combat_notice_secs = 1.6;
                 self.last_combat_event = Some(event);
             }
+            CombatEventKind::ShotgunFired {
+                request_id,
+                ammo_remaining,
+                endpoints,
+                ..
+            } => {
+                // The local Gunner already drew this blast when the trigger
+                // was pulled; everyone else draws the Server's pellets.
+                let drawn_locally = self.local_seat == SeatKind::Gunner
+                    && self
+                        .shotgun_tracer
+                        .is_some_and(|tracer| tracer.request_id == request_id);
+                if !drawn_locally {
+                    let origin = Vec3::new(event.position.x, event.position.y, event.position.z);
+                    self.shotgun_tracer = Some(ShotgunTracer {
+                        request_id,
+                        rays: endpoints.map(|end| Vec3::new(end.x, end.y, end.z) - origin),
+                        secs_remaining: SHOTGUN_TRACER_SECS,
+                    });
+                }
+                self.fire_feedback = Some((request_id, Ok(ammo_remaining)));
+                self.combat_notice_secs = 0.8;
+                self.last_combat_event = Some(event);
+                if self.local_seat != SeatKind::Gunner {
+                    self.weapon_recoil = 0.22;
+                    self.visual_fire_cooldown = 0.75;
+                }
+            }
             CombatEventKind::GunnerFireAccepted {
                 request_id,
                 ammo_remaining,
             } => {
+                if self.local_seat != SeatKind::Gunner {
+                    self.weapon_recoil = 0.22;
+                }
                 self.fire_feedback = Some((request_id, Ok(ammo_remaining)));
                 self.combat_notice_secs = 0.8;
                 self.last_combat_event = Some(event);
@@ -487,132 +580,88 @@ type PlayerMissileVisualFilter = (
 );
 type LockConeRingFilter = (With<LockConeRing>, Without<Reticle>);
 
-pub fn setup_scene(
+/// Marks everything derived from the course layout so a new round's seed can
+/// replace it without touching the bike, helicopter, or UI.
+#[derive(Component)]
+pub(super) struct CourseVisual;
+
+#[derive(Component)]
+pub(super) struct ObstacleVisual {
+    index: usize,
+}
+
+/// Client-only flight of a cone the bike ran through. The simulation only
+/// trims the bike's speed; the tumble is purely cosmetic and local.
+#[derive(Component)]
+pub(super) struct KnockedCone {
+    velocity: Vec3,
+    spin: Vec3,
+    resting: bool,
+}
+
+const CONE_KNOCK_GRAVITY: f32 = 9.8;
+
+pub(super) fn knock_cones(
     mut commands: Commands,
-    asset_server: Res<AssetServer>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    time: Res<Time>,
+    session: Res<GameSession>,
+    mut standing: Query<(Entity, &ObstacleVisual, &Transform), Without<KnockedCone>>,
+    mut flying: Query<(&mut Transform, &mut KnockedCone)>,
 ) {
-    commands.insert_resource(ClearColor(Color::srgb(0.62, 0.78, 0.79)));
-    commands.insert_resource(GlobalAmbientLight {
-        color: Color::srgb(0.88, 0.96, 0.95),
-        brightness: 180.0,
-        ..default()
-    });
-
-    let grass = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.23, 0.40, 0.31),
-        perceptual_roughness: 0.96,
-        ..default()
-    });
-    let rail_material = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.76, 0.82, 0.77),
-        metallic: 0.32,
-        perceptual_roughness: 0.46,
-        ..default()
-    });
-    let lane_material = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.90, 0.91, 0.81),
-        emissive: LinearRgba::rgb(0.025, 0.03, 0.02),
-        ..default()
-    });
-
-    let course = riverside_course();
-    let course_length = course.length_m();
-    commands.spawn((
-        Mesh3d(meshes.add(Plane3d::default().mesh().size(600.0, course_length + 160.0))),
-        MeshMaterial3d(grass),
-        Transform::from_xyz(0.0, -0.23, BikeState::default().z - course_length * 0.5),
-    ));
-
-    let rail_mesh = meshes.add(Cuboid::new(0.12, 0.44, 8.0));
-    let lane_mesh = meshes.add(Cuboid::new(0.055, 0.018, 8.0));
-    let short_rail_mesh = meshes.add(Cuboid::new(0.12, 0.44, 1.0));
-    // Give the rear-facing Gunner a short visual road behind the start line;
-    // the playable course itself still begins at the default bike position.
-    for segment in 1..=6 {
-        let base = Transform::from_xyz(
-            0.0,
-            0.0,
-            BikeState::default().z + ROAD_STRAIGHT_LENGTH_M * segment as f32,
-        );
-        commands.spawn((
-            WorldAssetRoot(
-                asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/road_straight.glb")),
-            ),
-            base,
-        ));
-        for side in [-1.0, 1.0] {
-            let mut rail_transform = base;
-            rail_transform.translation += Vec3::new(side * 2.55, 0.34, -4.0);
-            commands.spawn((
-                Mesh3d(rail_mesh.clone()),
-                MeshMaterial3d(rail_material.clone()),
-                rail_transform,
-            ));
-            let mut lane_transform = base;
-            lane_transform.translation += Vec3::new(side * 1.58, 0.015, -4.0);
-            commands.spawn((
-                Mesh3d(lane_mesh.clone()),
-                MeshMaterial3d(lane_material.clone()),
-                lane_transform,
-            ));
-        }
-    }
-    for piece in course.pieces() {
-        let road_asset = match piece.kind {
-            RoadPieceKind::Straight => "models/road_straight.glb",
-            RoadPieceKind::CurveRight | RoadPieceKind::CurveLeft => "models/road_curve.glb",
+    let bike = session.bike;
+    let forward = Vec3::new(bike.yaw.sin(), 0.0, -bike.yaw.cos());
+    for (entity, visual, transform) in &mut standing {
+        let Some(obstacle) = session.course.obstacles().get(visual.index) else {
+            continue;
         };
-        let base = Transform::from_xyz(piece.root_x, 0.0, piece.root_z)
-            .with_rotation(Quat::from_rotation_y(-piece.root_yaw));
-        commands.spawn((
-            WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(road_asset))),
-            base,
+        if obstacle.kind != ObstacleKind::Cone || bike.speed.abs() < 1.0 || bike.y > 0.7 {
+            continue;
+        }
+        let offset = Vec3::new(bike.x, 0.0, bike.z) - transform.translation;
+        if offset.length() > obstacle.half_width + 0.55 {
+            continue;
+        }
+        // Throw the cone ahead of the bike and off to whichever side it was struck.
+        let side = Vec3::new(forward.z, 0.0, -forward.x);
+        let side_sign = if offset.dot(side) > 0.0 { -1.0 } else { 1.0 };
+        let speed = bike.speed.abs();
+        commands.entity(entity).insert(KnockedCone {
+            velocity: forward * speed * 0.9 + side * side_sign * speed * 0.35 + Vec3::Y * 3.5,
+            spin: Vec3::new(9.0, 2.0, 6.0 * side_sign),
+            resting: false,
+        });
+    }
+    let dt = time.delta_secs();
+    for (mut transform, mut knocked) in &mut flying {
+        if knocked.resting {
+            continue;
+        }
+        knocked.velocity.y -= CONE_KNOCK_GRAVITY * dt;
+        transform.translation += knocked.velocity * dt;
+        transform.rotate(Quat::from_euler(
+            EulerRot::XYZ,
+            knocked.spin.x * dt,
+            knocked.spin.y * dt,
+            knocked.spin.z * dt,
         ));
-
-        if piece.kind == RoadPieceKind::Straight {
-            for side in [-1.0, 1.0] {
-                let mut rail_transform = base;
-                rail_transform.translation += base.rotation * Vec3::new(side * 2.55, 0.34, -4.0);
-                commands.spawn((
-                    Mesh3d(rail_mesh.clone()),
-                    MeshMaterial3d(rail_material.clone()),
-                    rail_transform,
-                ));
-                let mut lane_transform = base;
-                lane_transform.translation += base.rotation * Vec3::new(side * 1.58, 0.015, -4.0);
-                commands.spawn((
-                    Mesh3d(lane_mesh.clone()),
-                    MeshMaterial3d(lane_material.clone()),
-                    lane_transform,
-                ));
-            }
-        } else {
-            let sections = (piece.length_m / 1.0).ceil() as usize;
-            for index in 0..sections {
-                let start = index as f32;
-                let end = (start + 1.0).min(piece.length_m);
-                let center = course.point_at(piece.start_distance_m + (start + end) * 0.5);
-                let yaw = center.yaw;
-                let rotation = Quat::from_rotation_y(-yaw);
-                for side in [-1.0, 1.0] {
-                    let right = Vec3::new(yaw.cos(), 0.0, yaw.sin());
-                    commands.spawn((
-                        Mesh3d(short_rail_mesh.clone()),
-                        MeshMaterial3d(rail_material.clone()),
-                        Transform::from_xyz(center.center_x, 0.34, center.center_z)
-                            .with_translation(
-                                Vec3::new(center.center_x, 0.34, center.center_z)
-                                    + right * side * 2.55,
-                            )
-                            .with_rotation(rotation)
-                            .with_scale(Vec3::new(1.0, 1.0, end - start)),
-                    ));
-                }
-            }
+        if transform.translation.y <= 0.0 && knocked.velocity.y < 0.0 {
+            transform.translation.y = 0.0;
+            // Settle on its side after one tumble.
+            let yaw = transform.rotation.to_euler(EulerRot::YXZ).0;
+            transform.rotation = Quat::from_rotation_y(yaw) * Quat::from_rotation_z(1.45);
+            knocked.resting = true;
         }
     }
+}
+
+fn spawn_course_visuals(
+    commands: &mut Commands,
+    asset_server: &AssetServer,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+    course: &RiversideCourse,
+) {
+    crate::scenery::spawn_park(commands, meshes, materials, course);
 
     let bridge_material = materials.add(StandardMaterial {
         base_color: Color::srgb(0.37, 0.42, 0.41),
@@ -629,6 +678,7 @@ pub fn setup_scene(
         match cover.kind {
             CoverKind::BridgeDeck => {
                 commands.spawn((
+                    CourseVisual,
                     Mesh3d(bridge_deck_mesh.clone()),
                     MeshMaterial3d(bridge_material.clone()),
                     Transform::from_xyz(
@@ -646,6 +696,7 @@ pub fn setup_scene(
             }
             CoverKind::BridgePier => {
                 commands.spawn((
+                    CourseVisual,
                     WorldAssetRoot(
                         asset_server
                             .load(GltfAssetLabel::Scene(0).from_asset("models/bridge_pier.glb")),
@@ -689,6 +740,7 @@ pub fn setup_scene(
         let rotation = Quat::from_rotation_y(-gate.yaw);
         for side in [-1.0, 1.0] {
             commands.spawn((
+                CourseVisual,
                 Mesh3d(gate_post_mesh.clone()),
                 MeshMaterial3d(material.clone()),
                 Transform::from_translation(
@@ -698,43 +750,79 @@ pub fn setup_scene(
             ));
         }
         commands.spawn((
+            CourseVisual,
             Mesh3d(gate_beam_mesh.clone()),
             MeshMaterial3d(material),
             Transform::from_xyz(gate.center_x, 4.3, gate.center_z).with_rotation(rotation),
         ));
     }
 
-    let landmark_spacing = 80.0;
-    let mut landmark_distance = 28.0;
-    let mut index = 0;
-    while landmark_distance < course_length - 24.0 {
-        let landmark = course.point_at(landmark_distance);
-        let side = if index % 2 == 0 { 1.0 } else { -1.0 };
-        let right = Vec3::new(landmark.yaw.cos(), 0.0, landmark.yaw.sin());
-        let rotation = Quat::from_rotation_y(-landmark.yaw);
+    for (index, obstacle) in course.obstacles().iter().enumerate() {
+        let path = match obstacle.kind {
+            ObstacleKind::Cone => "models/traffic_cone.glb",
+            ObstacleKind::Bollard => "models/bollard.glb",
+            ObstacleKind::Barrier => "models/concrete_barrier.glb",
+        };
+        let scale = if obstacle.kind == ObstacleKind::Barrier {
+            Vec3::new(0.72, 1.0, 0.92)
+        } else {
+            Vec3::ONE
+        };
         commands.spawn((
-            WorldAssetRoot(
-                asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/riverside_lamp.glb")),
-            ),
-            Transform::from_xyz(landmark.center_x, 0.0, landmark.center_z)
-                .with_translation(
-                    Vec3::new(landmark.center_x, 0.0, landmark.center_z) + right * side * 3.4,
-                )
-                .with_rotation(rotation),
+            CourseVisual,
+            ObstacleVisual { index },
+            WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(path))),
+            Transform::from_xyz(obstacle.x, 0.0, obstacle.z)
+                .with_rotation(Quat::from_rotation_y(-obstacle.yaw))
+                .with_scale(scale),
         ));
-        commands.spawn((
-            WorldAssetRoot(
-                asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/riverside_tree.glb")),
-            ),
-            Transform::from_xyz(landmark.center_x, 0.0, landmark.center_z)
-                .with_translation(
-                    Vec3::new(landmark.center_x, 0.0, landmark.center_z) - right * side * 4.8,
-                )
-                .with_rotation(rotation),
-        ));
-        index += 1;
-        landmark_distance += landmark_spacing;
     }
+}
+
+pub(super) fn rebuild_course_visuals(
+    mut commands: Commands,
+    mut session: ResMut<GameSession>,
+    asset_server: Res<AssetServer>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    visuals: Query<Entity, With<CourseVisual>>,
+) {
+    if !session.course_visuals_stale {
+        return;
+    }
+    session.course_visuals_stale = false;
+    for entity in &visuals {
+        commands.entity(entity).despawn();
+    }
+    let course = session.course.clone();
+    spawn_course_visuals(
+        &mut commands,
+        &asset_server,
+        &mut meshes,
+        &mut materials,
+        &course,
+    );
+}
+
+pub fn setup_scene(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    commands.insert_resource(ClearColor(crate::scenery::SKY));
+    commands.insert_resource(GlobalAmbientLight {
+        color: Color::srgb(0.91, 0.95, 1.0),
+        brightness: 210.0,
+        ..default()
+    });
+    spawn_course_visuals(
+        &mut commands,
+        &asset_server,
+        &mut meshes,
+        &mut materials,
+        riverside_course(),
+    );
 
     let bike = commands
         .spawn((
@@ -757,23 +845,6 @@ pub fn setup_scene(
         WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/gunner.glb"))),
         Transform::from_translation(GUNNER_SEAT),
     ));
-
-    for obstacle in OBSTACLES {
-        let path = match obstacle.kind {
-            ObstacleKind::Cone => "models/traffic_cone.glb",
-            ObstacleKind::Bollard => "models/bollard.glb",
-            ObstacleKind::Barrier => "models/concrete_barrier.glb",
-        };
-        let scale = if obstacle.kind == ObstacleKind::Barrier {
-            Vec3::new(0.72, 1.0, 0.92)
-        } else {
-            Vec3::ONE
-        };
-        commands.spawn((
-            WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(path))),
-            Transform::from_xyz(obstacle.x, 0.0, obstacle.z).with_scale(scale),
-        ));
-    }
 
     commands.spawn((
         HelicopterVisual,
@@ -832,7 +903,8 @@ pub fn setup_scene(
 
     commands.spawn((
         DirectionalLight {
-            illuminance: 9_500.0,
+            illuminance: 8_500.0,
+            color: Color::srgb(1.0, 0.94, 0.83),
             shadow_maps_enabled: true,
             ..default()
         },
@@ -841,8 +913,9 @@ pub fn setup_scene(
 
     commands.spawn((
         Camera3d::default(),
+        crate::scenery::park_fog(),
         Projection::Perspective(PerspectiveProjection {
-            fov: std::f32::consts::PI / 3.0,
+            fov: CAMERA_BASE_FOV,
             ..default()
         }),
         FollowCamera,
@@ -957,7 +1030,7 @@ pub fn capture_input(
         keyboard.reset_all();
         mouse.reset_all();
         session.rider_input = RiderInput::default();
-        session.gunner_input = GunnerInput::default();
+        session.gunner_input.aim_held = false;
         session.rider_free_look = false;
         session.cursor_captured = false;
     }
@@ -1018,8 +1091,9 @@ pub fn capture_input(
         let left = keyboard.pressed(KeyCode::KeyA);
         let right = keyboard.pressed(KeyCode::KeyD);
         session.rider_input = RiderInput {
-            pedal_held: mouse.pressed(MouseButton::Left),
-            brake_held: keyboard.pressed(KeyCode::Space),
+            pedal_held: mouse.pressed(MouseButton::Left) || keyboard.pressed(KeyCode::KeyW),
+            // Holding brake while stopped reverses, so S doubles as reverse.
+            brake_held: keyboard.pressed(KeyCode::Space) || keyboard.pressed(KeyCode::KeyS),
             steer: rider_steer_from_keys(left, right),
         };
 
@@ -1040,16 +1114,68 @@ pub fn capture_input(
         session.cursor_captured = mouse.pressed(MouseButton::Right);
     } else {
         session.rider_input = RiderInput::default();
+        let weapon = if keyboard.just_pressed(KeyCode::Digit1) {
+            WeaponKind::Launcher
+        } else if keyboard.just_pressed(KeyCode::Digit2) {
+            WeaponKind::Shotgun
+        } else {
+            session.gunner_input.weapon
+        };
+        if weapon != session.gunner_input.weapon {
+            session.gunner_input.weapon = weapon;
+            session.gunner_locked = false;
+            session.gunner_lock_progress_ticks = 0;
+            session.predicted_lock_progress_ticks = 0;
+        }
+        let sensitivity = MOUSE_SENSITIVITY * (1.0 - 0.4 * session.gunner_ads);
         session.gunner_input.yaw =
-            (session.gunner_input.yaw + motion.delta.x * MOUSE_SENSITIVITY + std::f32::consts::PI)
+            (session.gunner_input.yaw + motion.delta.x * sensitivity + std::f32::consts::PI)
                 .rem_euclid(std::f32::consts::TAU)
                 - std::f32::consts::PI;
-        session.gunner_input.pitch = (session.gunner_input.pitch
-            - motion.delta.y * MOUSE_SENSITIVITY)
+        session.gunner_input.pitch = (session.gunner_input.pitch - motion.delta.y * sensitivity)
             .clamp(GUNNER_PITCH_MIN_RADIANS, GUNNER_PITCH_MAX_RADIANS);
         session.gunner_input.aim_held = mouse.pressed(MouseButton::Right);
         if mouse.just_pressed(MouseButton::Left) || mouse.just_pressed(MouseButton::Right) {
             session.cursor_captured = true;
+        }
+        if mouse.just_pressed(MouseButton::Left)
+            && session.phase == GamePhase::Running
+            && session.visual_fire_cooldown <= 0.0
+            && (!network.connected
+                || (session.fire_cooldown_ticks_remaining == 0
+                    && match session.gunner_input.weapon {
+                        WeaponKind::Shotgun => session.shotgun_ammo > 0,
+                        WeaponKind::Launcher => {
+                            session.gunner_locked
+                                && session.gunner_ammo > 0
+                                && session.gunner_input.aim_held
+                        }
+                    }))
+        {
+            session.weapon_recoil = 0.22;
+            if session.gunner_input.weapon == WeaponKind::Shotgun {
+                let origin = gunner_aim_origin(session.bike);
+                let target = session.helicopter.map(|helicopter| helicopter.position);
+                let (_, endpoints) = trace_shotgun(
+                    &session.course,
+                    origin,
+                    gunner_aim_direction(session.bike, session.gunner_input),
+                    session.gunner_input.aim_held,
+                    target,
+                );
+                let origin = Vec3::new(origin.x, origin.y, origin.z);
+                session.shotgun_tracer = Some(ShotgunTracer {
+                    // Matches the FireRequest id sent just below this frame.
+                    request_id: session.fire_request_sequence.saturating_add(1).max(1),
+                    rays: endpoints.map(|end| Vec3::new(end.x, end.y, end.z) - origin),
+                    secs_remaining: SHOTGUN_TRACER_SECS,
+                });
+            }
+            session.visual_fire_cooldown = if session.gunner_input.weapon == WeaponKind::Shotgun {
+                0.75
+            } else {
+                2.0
+            };
         }
         if mouse.just_pressed(MouseButton::Left)
             && session.phase == GamePhase::Running
@@ -1239,8 +1365,25 @@ pub(super) fn apply_world_transforms(
         return;
     };
     transform.translation.x = session.bike.x;
+    transform.translation.y = session.bike.y;
     transform.translation.z = session.bike.z;
-    transform.rotation = bike_facing_rotation(session.bike.yaw);
+    // Cosmetic lean into turns; it never feeds back into the simulation or
+    // the Gunner camera, which reads the unleaned bike state.
+    let speed_ratio = (session.bike.speed / MAX_SPEED).clamp(0.0, 1.0);
+    let lean_target = session.bike.steering_angle / MAX_FRONT_STEER_ANGLE
+        * speed_ratio.sqrt()
+        * BIKE_MAX_VISUAL_LEAN;
+    session.bike_visual_lean += (lean_target - session.bike_visual_lean)
+        * (time.delta_secs() * BIKE_LEAN_RESPONSE).min(1.0);
+    // Pitch the nose with vertical speed in the air: up off a lip, down on landing.
+    let air_pitch = if session.bike.airborne {
+        (session.bike.vy * 0.06).clamp(-0.35, 0.35)
+    } else {
+        0.0
+    };
+    transform.rotation = bike_facing_rotation(session.bike.yaw)
+        * Quat::from_rotation_x(air_pitch)
+        * Quat::from_rotation_z(-session.bike_visual_lean);
 
     if let Ok(mut gunner) = gunners.single_mut() {
         gunner.translation = GUNNER_SEAT;
@@ -1295,7 +1438,13 @@ pub(super) fn update_combat_visuals(
             .filter(|_| session.phase == GamePhase::Running)
         {
             transform.translation = world_position(helicopter.position);
-            transform.rotation = Quat::from_rotation_y(helicopter.yaw);
+            transform.rotation = Quat::from_rotation_y(helicopter.yaw)
+                * Quat::from_euler(
+                    EulerRot::XYZ,
+                    (time.elapsed_secs() * 1.7).sin() * 0.025,
+                    0.0,
+                    (time.elapsed_secs() * 1.1).sin() * 0.04,
+                );
             *visibility = Visibility::Visible;
         } else {
             *visibility = Visibility::Hidden;
@@ -1399,6 +1548,13 @@ fn combat_status(session: &GameSession) -> String {
             }
             CombatEventKind::GunnerFireAccepted { ammo_remaining, .. } => {
                 return format!("MISSILE AWAY  |  Ammo: {ammo_remaining}");
+            }
+            CombatEventKind::ShotgunFired {
+                pellets_hit,
+                ammo_remaining,
+                ..
+            } => {
+                return format!("SHOTGUN | {pellets_hit} pellets hit | Shells: {ammo_remaining}");
             }
             CombatEventKind::GunnerFireRejected { reason, .. } => {
                 return format!("CANNOT FIRE  |  {}", fire_rejection_label(reason));
@@ -1543,29 +1699,73 @@ fn rider_steer_from_keys(left: bool, right: bool) -> f32 {
 }
 
 pub(super) fn update_camera(
-    session: Res<GameSession>,
-    mut cameras: Query<&mut Transform, With<FollowCamera>>,
+    time: Res<Time>,
+    mut session: ResMut<GameSession>,
+    mut cameras: Query<(&mut Transform, &mut Projection), With<FollowCamera>>,
 ) {
-    let Ok(mut camera) = cameras.single_mut() else {
+    let Ok((mut camera, mut projection)) = cameras.single_mut() else {
         return;
     };
-    let bike_position = Vec3::new(session.bike.x, 0.0, session.bike.z);
-    match session.local_seat {
+    // Follow jumps at reduced height so landings do not slam the chase view.
+    let bike_position = Vec3::new(session.bike.x, session.bike.y * 0.7, session.bike.z);
+    let fov = match session.local_seat {
         SeatKind::Rider => {
+            let speed_ratio = (session.bike.speed / MAX_SPEED).clamp(0.0, 1.0);
+            let target_fov =
+                CAMERA_BASE_FOV + (RIDER_TOP_SPEED_FOV - CAMERA_BASE_FOV) * speed_ratio;
+            session.rider_camera_fov += (target_fov - session.rider_camera_fov)
+                * (time.delta_secs() * RIDER_FOV_RESPONSE).min(1.0);
             let camera_yaw = bike_facing_rotation(session.rider_camera_yaw);
-            let eye = bike_position + camera_yaw * Vec3::new(0.0, 3.4, 7.4);
+            let shake = if session.collision_flash > 0.0 {
+                let t = time.elapsed_secs() * 47.0;
+                Vec3::new(t.sin(), (t * 1.37).cos(), 0.0)
+                    * (RIDER_CAMERA_SHAKE_M * session.collision_flash / 0.28)
+            } else {
+                Vec3::ZERO
+            };
+            let offset = RIDER_CAMERA_OFFSET + RIDER_CAMERA_TOP_SPEED_PULLBACK * speed_ratio;
+            let eye = bike_position + camera_yaw * (offset + shake);
             let direction =
                 camera_yaw * Quat::from_rotation_x(session.rider_camera_pitch) * Vec3::NEG_Z;
             *camera = Transform::from_translation(eye).looking_to(direction, Vec3::Y);
+            session.rider_camera_fov
         }
         SeatKind::Gunner => {
+            // ADS is local and smoothed; bike shake never changes the aim ray.
+            let target = if session.gunner_input.aim_held && session.focused {
+                1.0
+            } else {
+                0.0
+            };
+            session.gunner_ads +=
+                (target - session.gunner_ads) * (1.0 - (-14.0 * time.delta_secs()).exp());
             *camera = gunner_camera_transform(session.bike, session.gunner_input);
+            gunner_fov(session.gunner_ads, session.gunner_input.weapon)
         }
+    };
+    if let Projection::Perspective(perspective) = projection.as_mut()
+        && perspective.fov != fov
+    {
+        perspective.fov = fov;
     }
 }
 
+fn gunner_fov(ads: f32, weapon: WeaponKind) -> f32 {
+    let aimed = match weapon {
+        WeaponKind::Launcher => 40.0_f32,
+        WeaponKind::Shotgun => 46.0_f32,
+    }
+    .to_radians();
+    CAMERA_BASE_FOV + (aimed - CAMERA_BASE_FOV) * ads
+}
+
+/// The Gunner's first-person eye transform, shared with weapon effects.
+pub(super) fn gunner_eye(bike: BikeState, input: GunnerInput) -> Transform {
+    gunner_camera_transform(bike, input)
+}
+
 fn gunner_camera_transform(bike: BikeState, input: GunnerInput) -> Transform {
-    let bike_position = Vec3::new(bike.x, 0.0, bike.z);
+    let bike_position = Vec3::new(bike.x, bike.y, bike.z);
     let bike_rotation = bike_facing_rotation(bike.yaw);
     let chair_rotation = gunner_facing_rotation(input.yaw);
     let eye = bike_position
@@ -1643,7 +1843,7 @@ pub(super) fn update_hud(
             "LMB pedal | Space brake | A/D steer\nR ready both | V switch role | F3 diagnostics"
         }
         (SeatKind::Gunner, true, _) => {
-            "Mouse aim | hold RMB to lock | LMB fire\nR ready both | V switch role | F3 diagnostics"
+            "1 launcher / 2 shotgun | RMB aim | LMB fire\nR ready both | V switch role | F3 diagnostics"
         }
         (SeatKind::Rider, false, false) => {
             "LMB pedal | Space brake | A/D steer\nRMB free look | F3 diagnostics"
@@ -1652,13 +1852,28 @@ pub(super) fn update_hud(
             "LMB pedal | Space brake | A/D steer\nRMB free look | R ready | F3 diagnostics"
         }
         (SeatKind::Gunner, false, _) => {
-            "Mouse aim | hold RMB to lock | LMB fire\nR ready | Esc release pointer | F3 diagnostics"
+            "1 launcher / 2 shotgun | RMB aim | LMB fire\nR ready | Esc release pointer | F3 diagnostics"
         }
     };
     let lock_progress = session.gunner_lock_progress_ticks as f32 / GUNNER_LOCK_TICKS as f32;
     let predicted_progress =
         session.predicted_lock_progress_ticks as f32 / GUNNER_LOCK_TICKS as f32;
-    let combat = if session.local_seat == SeatKind::Gunner {
+    let combat = if session.local_seat == SeatKind::Gunner
+        && session.gunner_input.weapon == WeaponKind::Shotgun
+    {
+        format!(
+            "SHOTGUN | Shells {}/{} | {}\nBike {}/100  Heli {}/100",
+            session.shotgun_ammo,
+            SHOTGUN_STARTING_AMMO,
+            if session.fire_cooldown_ticks_remaining > 0 {
+                "CYCLING"
+            } else {
+                "READY"
+            },
+            session.bike_health,
+            session.helicopter_health
+        )
+    } else if session.local_seat == SeatKind::Gunner {
         let server_lock = if session.gunner_locked {
             "LOCKED"
         } else if session.gunner_lock_grace_ticks_remaining > 0 {
@@ -1667,7 +1882,7 @@ pub(super) fn update_hud(
             "locking"
         };
         format!(
-            "Bike {:>3}/100  Heli {:>3}/100\nAmmo {}/{} | Server {server_lock} ({:.0}%) | {}",
+            "LAUNCHER | Bike {:>3}/100  Heli {:>3}/100\nAmmo {}/{} | Server {server_lock} ({:.0}%) | {}",
             session.bike_health,
             session.helicopter_health,
             session.gunner_ammo,
@@ -1749,18 +1964,25 @@ pub(super) fn update_hud(
     if let Ok((mut node, mut border_color, mut visibility)) = lock_ring.single_mut() {
         let (radius, focused) = windows.single().map_or((60.0, false), |window| {
             let half_height = window.height() * 0.5;
-            let cone_radius = half_height
-                * (GUNNER_LOCK_CONE_HALF_ANGLE_DEGREES.to_radians().tan())
-                / (std::f32::consts::PI / 6.0).tan();
-            (
-                cone_radius.clamp(36.0, 120.0),
-                session.local_seat == SeatKind::Gunner,
-            )
+            let tangent = if session.gunner_input.weapon == WeaponKind::Shotgun {
+                if session.gunner_input.aim_held {
+                    SHOTGUN_AIM_SPREAD
+                } else {
+                    SHOTGUN_HIP_SPREAD
+                }
+            } else {
+                GUNNER_LOCK_CONE_HALF_ANGLE_DEGREES.to_radians().tan()
+            };
+            let cone_radius = half_height * tangent
+                / (gunner_fov(session.gunner_ads, session.gunner_input.weapon) * 0.5).tan();
+            (cone_radius.max(1.0), session.local_seat == SeatKind::Gunner)
         });
         node.width = px(radius * 2.0);
         node.height = px(radius * 2.0);
         node.margin = UiRect::all(px(-radius));
-        if session.gunner_locked {
+        if session.gunner_input.weapon == WeaponKind::Shotgun {
+            *border_color = BorderColor::all(Color::srgba(0.94, 0.94, 0.88, 0.65));
+        } else if session.gunner_locked {
             *border_color = BorderColor::all(Color::srgb(0.35, 1.0, 0.54));
         } else if session.predicted_lock_progress_ticks > 0 {
             *border_color = BorderColor::all(Color::srgb(1.0, 0.78, 0.30));
@@ -1777,6 +1999,7 @@ pub(super) fn update_hud(
 
 fn update_predicted_lock(session: &mut GameSession, delta_secs: f32) {
     if session.local_seat != SeatKind::Gunner
+        || session.gunner_input.weapon != WeaponKind::Launcher
         || session.phase != GamePhase::Running
         || !session.gunner_input.aim_held
         || session.helicopter_health == 0
@@ -1790,7 +2013,12 @@ fn update_predicted_lock(session: &mut GameSession, delta_secs: f32) {
         session.predicted_lock_outside_secs = 0.0;
         return;
     };
-    let aim = evaluate_gunner_aim(session.bike, session.gunner_input, helicopter.position);
+    let aim = evaluate_gunner_aim(
+        &session.course,
+        session.bike,
+        session.gunner_input,
+        helicopter.position,
+    );
     if !aim.in_range || aim.obstructed {
         session.predicted_lock_progress_ticks = 0;
         session.predicted_lock_outside_secs = 0.0;

@@ -9,3 +9,6 @@ serde.workspace = true
 
 [lib]
 path = "src/lib.rs"
+
+[dev-dependencies]
+serde_json.workspace = true

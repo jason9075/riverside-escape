@@ -2,7 +2,7 @@
 
 Rust + Bevy workspace for the Riverside Escape browser game.
 
-The current prototype covers P0 riding and camera controls plus the first P1 room flow: one authoritative bike, Rider/Gunner seats, Ready, and a server-timed five-second countdown. Combat and the full invite/lobby flow are not part of this build.
+The prototype includes one authoritative bicycle, Rider/Gunner seats, room and Ready flow, helicopter combat, and riverside escape routes. The Gunner can switch between a lock-on launcher and a shotgun, with first-person weapons and hold-to-aim controls; the bicycle crew and helicopter use procedural animation.
 
 ## Prerequisites
 
@@ -63,7 +63,9 @@ When the browser server is unavailable, the client still opens as a local Rider 
 | Rider | A / D | Steer; temporary bindings pending product review |
 | Rider | Hold right mouse button and move | Free-look; releasing returns to chase view |
 | Gunner | Move mouse | Rotate the rear seat and first-person view |
-| Gunner | Hold right mouse button | Aim state for the later lock-on milestone |
+| Gunner | 1 / 2 | Switch launcher / shotgun |
+| Gunner | Hold right mouse button | Aim down sights; launcher locks onto the helicopter, shotgun tightens spread |
+| Gunner | Left mouse button | Fire once; launcher requires a completed lock, shotgun also supports hip fire |
 | Either | R | Toggle Ready in co-op before the match starts |
 | Solo development | V | Switch Rider/Gunner role while connected |
 | Solo development | R | Force Ready both seats and start the countdown |
@@ -73,7 +75,7 @@ Leaving the game window clears held input. Mouse capture is released with **Esc*
 
 ## Models
 
-The first stylized low-poly model kit is in `assets/models/` (15 standalone GLB files).
+The first stylized low-poly model kit is in `assets/models/` (16 standalone GLB files).
 Open `art/riverside_models.blend` to edit the source or inspect the assembled bicycle crew.
 See [the model guide](art/README.md) for previews, pivots, seat sockets, scale, and rebuild commands.
 The models are exported and validated, and the P0 scene now loads the bicycle, two seated riders, road segments, riverside dressing, and prototype obstacles through Bevy's glTF loader.

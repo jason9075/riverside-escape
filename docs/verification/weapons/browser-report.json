@@ -1,0 +1,259 @@
+{
+  "errors": [],
+  "checks": [
+    {
+      "slot2": "shotgun",
+      "ads_fired": true,
+      "hip_fired": true,
+      "shotgun_ammo": 22,
+      "launcher_ammo": 6
+    },
+    {
+      "slot1": "launcher"
+    },
+    {
+      "pellet_hits": [
+        8,
+        8
+      ]
+    }
+  ],
+  "events": [
+    {
+      "event_id": 1,
+      "attack_id": 1,
+      "tick": 1447,
+      "position": {
+        "x": 0,
+        "y": 0,
+        "z": 2
+      },
+      "kind": {
+        "type": "rocket_warning"
+      }
+    },
+    {
+      "event_id": 2,
+      "attack_id": 1,
+      "tick": 1567,
+      "position": {
+        "x": 0,
+        "y": 7.45,
+        "z": 14.18
+      },
+      "kind": {
+        "type": "rocket_launched"
+      }
+    },
+    {
+      "event_id": 3,
+      "attack_id": 1,
+      "tick": 1615,
+      "position": {
+        "x": 0,
+        "y": 0,
+        "z": 2
+      },
+      "kind": {
+        "type": "rocket_exploded",
+        "hit": true,
+        "hit_count": 1
+      }
+    },
+    {
+      "event_id": 4,
+      "attack_id": 1,
+      "tick": 1615,
+      "position": {
+        "x": 0,
+        "y": 0,
+        "z": 2
+      },
+      "kind": {
+        "type": "bike_damaged",
+        "health_remaining": 75
+      }
+    },
+    {
+      "event_id": 5,
+      "attack_id": 2,
+      "tick": 1906,
+      "position": {
+        "x": 0,
+        "y": 1.84,
+        "z": 3.03
+      },
+      "kind": {
+        "type": "shotgun_fired",
+        "request_id": 1,
+        "ammo_remaining": 23,
+        "pellets_hit": 8,
+        "helicopter_health": 68,
+        "endpoints": [
+          {
+            "x": 0.0029060706,
+            "y": 7.2586365,
+            "z": 14.414797
+          },
+          {
+            "x": -0.35451373,
+            "y": 7.1878514,
+            "z": 14.490949
+          },
+          {
+            "x": 0.3604042,
+            "y": 7.1884384,
+            "z": 14.492024
+          },
+          {
+            "x": -0.19496657,
+            "y": 7.467009,
+            "z": 14.344579
+          },
+          {
+            "x": 0.20075497,
+            "y": 7.4673486,
+            "z": 14.3451605
+          },
+          {
+            "x": 0.0029437381,
+            "y": 7.0021563,
+            "z": 14.562363
+          },
+          {
+            "x": -0.50128955,
+            "y": 7.348233,
+            "z": 14.455202
+          },
+          {
+            "x": 0.50720304,
+            "y": 7.3491106,
+            "z": 14.456764
+          }
+        ]
+      }
+    },
+    {
+      "event_id": 6,
+      "attack_id": 3,
+      "tick": 1915,
+      "position": {
+        "x": 0,
+        "y": 0,
+        "z": 2
+      },
+      "kind": {
+        "type": "rocket_warning"
+      }
+    },
+    {
+      "event_id": 7,
+      "attack_id": 3,
+      "tick": 2035,
+      "position": {
+        "x": 0,
+        "y": 7.45,
+        "z": 14.18
+      },
+      "kind": {
+        "type": "rocket_launched"
+      }
+    },
+    {
+      "event_id": 8,
+      "attack_id": 4,
+      "tick": 2040,
+      "position": {
+        "x": 0,
+        "y": 1.84,
+        "z": 3.03
+      },
+      "kind": {
+        "type": "shotgun_fired",
+        "request_id": 2,
+        "ammo_remaining": 22,
+        "pellets_hit": 8,
+        "helicopter_health": 36,
+        "endpoints": [
+          {
+            "x": 0.0029060706,
+            "y": 7.2586365,
+            "z": 14.414797
+          },
+          {
+            "x": -0.920756,
+            "y": 7.153842,
+            "z": 14.775777
+          },
+          {
+            "x": 0.9270672,
+            "y": 7.155648,
+            "z": 14.779298
+          },
+          {
+            "x": -0.48148537,
+            "y": 7.809432,
+            "z": 14.32836
+          },
+          {
+            "x": 0.4873325,
+            "y": 7.810402,
+            "z": 14.329947
+          },
+          {
+            "x": 0.0030325998,
+            "y": 6.6305237,
+            "z": 14.910487
+          },
+          {
+            "x": -1.2963916,
+            "y": 7.659016,
+            "z": 14.875002
+          },
+          {
+            "x": 1.3032652,
+            "y": 7.6627097,
+            "z": 14.881856
+          }
+        ]
+      }
+    },
+    {
+      "event_id": 9,
+      "attack_id": 3,
+      "tick": 2083,
+      "position": {
+        "x": 0,
+        "y": 0,
+        "z": 2
+      },
+      "kind": {
+        "type": "rocket_exploded",
+        "hit": true,
+        "hit_count": 2
+      }
+    },
+    {
+      "event_id": 10,
+      "attack_id": 3,
+      "tick": 2083,
+      "position": {
+        "x": 0,
+        "y": 0,
+        "z": 2
+      },
+      "kind": {
+        "type": "bike_damaged",
+        "health_remaining": 50
+      }
+    }
+  ],
+  "browser": {
+    "Browser": "Chrome/155.0.8059.39",
+    "Protocol-Version": "1.3",
+    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/155.0.0.0 Safari/537.36",
+    "V8-Version": "15.5.35.20",
+    "WebKit-Version": "537.36 (@3ff7ac5a9224be9156d7f8703a06e22890aafd34)"
+  },
+  "passed": true
+}

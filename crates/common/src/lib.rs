@@ -1,8 +1,11 @@
 //! Shared gameplay state and the small P1 WebSocket protocol.
 
+mod weapons;
+pub use weapons::*;
+
 use std::{
     collections::{BTreeMap, VecDeque},
-    sync::OnceLock,
+    sync::{Arc, Mutex, OnceLock},
 };
 
 use serde::{Deserialize, Serialize};
@@ -10,7 +13,7 @@ use serde::{Deserialize, Serialize};
 pub const SIMULATION_HZ: u32 = 60;
 pub const SNAPSHOT_HZ: u32 = 20;
 pub const COUNTDOWN_SECONDS: u8 = 5;
-pub const MAX_SPEED: f32 = 11.0;
+pub const MAX_SPEED: f32 = 13.0;
 pub const TRACK_HALF_WIDTH: f32 = 2.3;
 pub const BIKE_COLLISION_HALF_WIDTH: f32 = 0.28;
 pub const ROAD_STRAIGHT_LENGTH_M: f32 = 8.0;
@@ -30,6 +33,48 @@ pub const PREDICTION_HISTORY_TICKS: usize = (SIMULATION_HZ * 5) as usize;
 pub const MAX_INPUT_TICK_AGE: u64 = SIMULATION_HZ as u64 * 5;
 pub const MAX_INPUT_TICK_FUTURE: u64 = 3;
 pub const MAX_FRONT_STEER_ANGLE: f32 = 0.45;
+pub const BIKE_PEDAL_ACCEL: f32 = 7.0;
+/// Fraction of the pedal acceleration lost at top speed.
+pub const BIKE_PEDAL_FALLOFF: f32 = 0.6;
+pub const BIKE_BRAKE_DECEL: f32 = 9.0;
+pub const BIKE_COAST_DECEL: f32 = 0.4;
+pub const BIKE_REVERSE_ACCEL: f32 = 3.0;
+pub const BIKE_REVERSE_MAX_SPEED: f32 = 2.5;
+pub const BIKE_REVERSE_DELAY_SECS: f32 = 0.2;
+pub const BIKE_FORK_STEER_RATE: f32 = 6.0;
+pub const BIKE_YAW_RATE: f32 = 1.9;
+pub const BIKE_FULL_STEER_SPEED: f32 = 2.5;
+pub const BIKE_BRAKE_STEER_MULTIPLIER: f32 = 1.5;
+/// Front and rear collision probes along the bike centerline.
+pub const BIKE_PROBE_OFFSET_M: f32 = 0.45;
+pub const BIKE_CONTACT_SPEED_LOSS: f32 = 0.6;
+pub const BIKE_CONTACT_DEFLECT: f32 = 0.35;
+pub const BIKE_CONTACT_REPORT_SPEED_LOSS: f32 = 0.5;
+pub const BIKE_CRASH_HEAD_ON_COS: f32 = 0.7;
+pub const BIKE_CRASH_SPEED: f32 = MAX_SPEED * 0.7;
+/// Speed kept after a fast head-on hit on a large obstacle (barrier).
+pub const BIKE_CRASH_SPEED_KEPT: f32 = 0.25;
+/// Small solid obstacles (bollards) only take part of the speed.
+pub const BIKE_SMALL_CRASH_SPEED_KEPT: f32 = 0.55;
+/// Knocking a cone aside trims speed without stopping the bike.
+pub const BIKE_CONE_SPEED_KEPT: f32 = 0.85;
+pub const GRASS_MAX_SPEED_RATIO: f32 = 0.55;
+pub const GRASS_SCRUB_DECEL: f32 = 6.0;
+pub const WATER_MAX_SPEED_RATIO: f32 = 0.25;
+pub const WATER_SCRUB_DECEL: f32 = 14.0;
+/// Paved paths are rail-free; the park ends this far from the nearest path.
+pub const PARK_BOUNDARY_M: f32 = 20.0;
+pub const BRANCH_HALF_WIDTH_M: f32 = 1.8;
+pub const GRAVITY: f32 = 9.8;
+/// Vertical launch speed as a fraction of forward speed at a ramp lip.
+pub const BIKE_RAMP_LAUNCH_RATIO: f32 = 0.35;
+pub const BIKE_MIN_LAUNCH_SPEED: f32 = 2.0;
+pub const BIKE_AIR_STEER_MULTIPLIER: f32 = 0.25;
+pub const BIKE_LANDING_BOOST: f32 = 1.0;
+pub const BIKE_SPLASH_SPEED_KEPT: f32 = 0.45;
+pub const BIKE_UNSTUCK_SPEED: f32 = 4.0;
+pub const BIKE_UNSTUCK_NUDGE_MPS: f32 = 1.5;
+pub const BIKE_UNSTUCK_YAW_RATE: f32 = 1.2;
 pub const BIKE_RENDER_CORRECTION_TAU_SECS: f32 = 0.085;
 pub const HELICOPTER_CHASE_SECONDS: f32 = 3.0;
 pub const ROCKET_WARNING_SECONDS: f32 = 2.0;
@@ -193,6 +238,8 @@ pub struct RiderInputSample {
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct GunnerInput {
+    #[serde(default)]
+    pub weapon: WeaponKind,
     /// Chair yaw offset in radians from its rear-facing prototype home heading.
     pub yaw: f32,
     /// Camera pitch in radians.
@@ -369,6 +416,13 @@ pub enum CombatEventKind {
         request_id: u64,
         reason: FireRejectionReason,
     },
+    ShotgunFired {
+        request_id: u64,
+        ammo_remaining: u8,
+        pellets_hit: u8,
+        helicopter_health: u16,
+        endpoints: [WorldPosition; SHOTGUN_PELLETS],
+    },
     PlayerMissileImpacted {
         hit: bool,
         helicopter_health: u16,
@@ -403,7 +457,7 @@ pub struct AimEvaluation {
 pub fn gunner_aim_origin(bike: BikeState) -> WorldPosition {
     WorldPosition {
         x: bike.x - bike.yaw.sin() * GUNNER_AIM_ORIGIN_REAR_M,
-        y: GUNNER_AIM_ORIGIN_HEIGHT_M,
+        y: bike.y + GUNNER_AIM_ORIGIN_HEIGHT_M,
         z: bike.z + bike.yaw.cos() * GUNNER_AIM_ORIGIN_REAR_M,
     }
 }
@@ -419,6 +473,7 @@ pub fn gunner_aim_direction(bike: BikeState, input: GunnerInput) -> WorldPositio
 }
 
 pub fn evaluate_gunner_aim(
+    course: &RiversideCourse,
     bike: BikeState,
     input: GunnerInput,
     target: WorldPosition,
@@ -441,23 +496,40 @@ pub fn evaluate_gunner_aim(
         angle_degrees,
         in_cone: angle_degrees <= GUNNER_LOCK_CONE_HALF_ANGLE_DEGREES,
         in_range: distance_m <= GUNNER_LOCK_DISTANCE_M,
-        obstructed: line_of_sight_blocked(origin, target),
+        obstructed: line_of_sight_blocked(course, origin, target),
     }
 }
 
-pub fn line_of_sight_blocked(origin: WorldPosition, target: WorldPosition) -> bool {
-    for obstacle in OBSTACLES {
+pub fn line_of_sight_blocked(
+    course: &RiversideCourse,
+    origin: WorldPosition,
+    target: WorldPosition,
+) -> bool {
+    for obstacle in course.obstacles() {
         let (height, padding) = match obstacle.kind {
             ObstacleKind::Cone => (0.9, 0.08),
             ObstacleKind::Bollard => (1.2, 0.08),
             ObstacleKind::Barrier => (1.4, 0.0),
         };
-        let min_x = obstacle.x - obstacle.half_width - padding;
-        let max_x = obstacle.x + obstacle.half_width + padding;
-        let min_z = obstacle.z - obstacle.half_depth - padding;
-        let max_z = obstacle.z + obstacle.half_depth + padding;
-        let Some((entry, exit)) = segment_box_interval(origin, target, min_x, max_x, min_z, max_z)
-        else {
+        // Test the segment in the obstacle's local frame so road-aligned
+        // obstacles on angled straights keep their exact footprint.
+        let local = |position: WorldPosition| {
+            let (x, z) = obstacle.to_local(position.x, position.z);
+            WorldPosition {
+                x,
+                y: position.y,
+                z,
+            }
+        };
+        let (local_origin, local_target) = (local(origin), local(target));
+        let Some((entry, exit)) = segment_box_interval(
+            local_origin,
+            local_target,
+            -obstacle.half_width - padding,
+            obstacle.half_width + padding,
+            -obstacle.half_depth - padding,
+            obstacle.half_depth + padding,
+        ) else {
             continue;
         };
         let t = entry.clamp(0.0, 1.0);
@@ -465,13 +537,17 @@ pub fn line_of_sight_blocked(origin: WorldPosition, target: WorldPosition) -> bo
             return true;
         }
     }
-    first_cover_intersection(origin, target).is_some()
+    first_cover_intersection(course, origin, target).is_some()
 }
 
 /// Returns the first entry fraction along a 3D line segment that intersects
 /// shared, server-safe cover geometry.
-pub fn first_cover_intersection(origin: WorldPosition, target: WorldPosition) -> Option<f32> {
-    riverside_course()
+pub fn first_cover_intersection(
+    course: &RiversideCourse,
+    origin: WorldPosition,
+    target: WorldPosition,
+) -> Option<f32> {
+    course
         .cover_volumes()
         .iter()
         .filter_map(|cover| {
@@ -515,6 +591,12 @@ fn segment_box_interval(
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct WorldSnapshot {
+    #[serde(default)]
+    pub gunner_input: GunnerInput,
+    #[serde(default)]
+    pub rider_pedaling: bool,
+    #[serde(default = "default_shotgun_ammo")]
+    pub shotgun_ammo: u8,
     pub tick: u64,
     pub phase: GamePhase,
     pub seats: BTreeMap<SeatKind, SeatStatus>,
@@ -535,6 +617,9 @@ pub struct WorldSnapshot {
     pub route_checkpoints_total: u8,
     #[serde(default)]
     pub route_length_m: f32,
+    /// Seed of the round's course layout; `AUTHORED_COURSE_SEED` is the baseline.
+    #[serde(default)]
+    pub course_seed: u64,
     /// Highest Rider input sequence applied by the simulation up through this snapshot tick.
     #[serde(default)]
     pub last_applied_rider_sequence: u32,
@@ -592,6 +677,16 @@ pub struct BikeState {
     /// Front fork/handlebar angle relative to the bicycle frame.
     #[serde(default)]
     pub steering_angle: f32,
+    /// Time spent stopped with only the brake held; reverse engages after a short delay.
+    #[serde(default)]
+    pub stopped_brake_secs: f32,
+    /// Height above the lawn; non-zero on ramps and in the air.
+    #[serde(default)]
+    pub y: f32,
+    #[serde(default)]
+    pub vy: f32,
+    #[serde(default)]
+    pub airborne: bool,
 }
 
 impl Default for BikeState {
@@ -602,6 +697,10 @@ impl Default for BikeState {
             yaw: 0.0,
             speed: 0.0,
             steering_angle: 0.0,
+            stopped_brake_secs: 0.0,
+            y: 0.0,
+            vy: 0.0,
+            airborne: false,
         }
     }
 }
@@ -609,55 +708,282 @@ impl Default for BikeState {
 impl BikeState {
     /// Arcade/kinematic bicycle controller shared by offline preview and the server.
     /// `steer < 0` is left and `steer > 0` is right; positive yaw turns right.
-    pub fn step(&mut self, input: RiderInput, dt: f32) -> bool {
+    ///
+    /// Handling follows the Road Redemption reference: the heading responds
+    /// almost immediately with a near speed-independent yaw rate, glancing
+    /// contacts slide instead of stopping, and only fast head-on impacts count
+    /// as a crash. Returns true when the bike lost meaningful speed to contact.
+    pub fn step(&mut self, input: RiderInput, dt: f32, course: &RiversideCourse) -> bool {
         let dt = dt.clamp(0.0, 0.05);
-        let previous_speed = self.speed;
-        if input.brake_held {
-            self.speed = (self.speed - 5.5 * dt).max(0.0);
-        } else if input.pedal_held {
-            self.speed = (self.speed + 2.8 * dt).min(MAX_SPEED);
-        } else {
-            // Releasing the pedal coasts down slowly. Braking remains a distinct action.
-            self.speed = (self.speed - 0.28 * dt).max(0.0);
-        }
-
         let steer = input.steer.clamp(-1.0, 1.0);
-        let target_steering_angle = steer * MAX_FRONT_STEER_ANGLE;
-        let steering_rate = if steer == 0.0 { 1.8 } else { 1.35 };
+        let surface = course.surface_at(self.x, self.z);
+        if !self.airborne {
+            self.step_throttle(input, dt, surface);
+        }
+        let previous_speed = self.speed;
+
         self.steering_angle = move_toward(
             self.steering_angle,
-            target_steering_angle,
-            steering_rate * dt,
+            steer * MAX_FRONT_STEER_ANGLE,
+            BIKE_FORK_STEER_RATE * dt,
         );
-        if self.speed > 0.0 {
-            // A simple bicycle controller: steering changes curvature, while
-            // body yaw can only change as the bicycle travels forward.
-            let steer_ratio = self.steering_angle / MAX_FRONT_STEER_ANGLE;
-            let yaw_rate = self.speed * 0.148 * steer_ratio;
-            self.yaw = (self.yaw + yaw_rate * dt).rem_euclid(std::f32::consts::TAU);
+        // Body yaw still only changes while rolling, but reaches full authority
+        // at a walking pace so low-speed dodges stay responsive.
+        let steer_ratio = self.steering_angle / MAX_FRONT_STEER_ANGLE;
+        let rolling = (self.speed / BIKE_FULL_STEER_SPEED).clamp(-1.0, 1.0);
+        let mut yaw_rate = BIKE_YAW_RATE * steer_ratio * rolling;
+        if self.airborne {
+            yaw_rate *= BIKE_AIR_STEER_MULTIPLIER;
+        } else if input.brake_held && self.speed > BIKE_FULL_STEER_SPEED {
+            yaw_rate *= BIKE_BRAKE_STEER_MULTIPLIER;
+        }
+        self.yaw = (self.yaw + yaw_rate * dt).rem_euclid(std::f32::consts::TAU);
+
+        let (start_x, start_z) = (self.x, self.z);
+        self.x += self.yaw.sin() * self.speed * dt;
+        self.z -= self.yaw.cos() * self.speed * dt;
+
+        let mut impact = self.step_vertical(dt, course, start_x, start_z);
+
+        let mut touching_obstacle = false;
+        for &obstacle in course.obstacles() {
+            if self.y > obstacle.height() {
+                continue;
+            }
+            if obstacle.kind == ObstacleKind::Cone {
+                // Cones are knocked aside: entering one only trims speed.
+                let was_inside = self.overlaps_obstacle(obstacle, start_x, start_z);
+                if !was_inside && self.overlaps_obstacle(obstacle, self.x, self.z) {
+                    self.speed *= BIKE_CONE_SPEED_KEPT;
+                    impact = true;
+                }
+                continue;
+            }
+            for probe in [BIKE_PROBE_OFFSET_M, -BIKE_PROBE_OFFSET_M] {
+                if let Some(normal) = self.push_out_of_obstacle(obstacle, probe) {
+                    touching_obstacle = true;
+                    impact |= self.absorb_impact(normal, Some(obstacle.crash_speed_kept()));
+                }
+            }
+        }
+        // Low-speed contact turns steering into a sideways nudge so the
+        // Rider can always work free of an obstacle without reversing.
+        if touching_obstacle && self.speed.abs() < BIKE_UNSTUCK_SPEED && steer != 0.0 {
+            let nudge = steer * BIKE_UNSTUCK_NUDGE_MPS * dt;
+            self.x += self.yaw.cos() * nudge;
+            self.z += self.yaw.sin() * nudge;
+            self.yaw =
+                (self.yaw + steer * BIKE_UNSTUCK_YAW_RATE * dt).rem_euclid(std::f32::consts::TAU);
         }
 
-        let next_x = self.x + self.yaw.sin() * self.speed * dt;
-        let next_z = self.z - self.yaw.cos() * self.speed * dt;
-        if OBSTACLES
-            .iter()
-            .any(|obstacle| obstacle.blocks(next_x, next_z))
+        // There are no road rails any more; only the park boundary, a fixed
+        // distance from every paved path, stops the bike.
+        let nearest = course.nearest_road_point(self.x, self.z);
+        if nearest.distance_m > PARK_BOUNDARY_M {
+            let (dx, dz) = (self.x - nearest.x, self.z - nearest.z);
+            let scale = PARK_BOUNDARY_M / nearest.distance_m;
+            self.x = nearest.x + dx * scale;
+            self.z = nearest.z + dz * scale;
+            let normal = (-dx / nearest.distance_m, -dz / nearest.distance_m);
+            self.absorb_impact(normal, None);
+        }
+
+        impact || previous_speed.abs() > self.speed.abs() + BIKE_CONTACT_REPORT_SPEED_LOSS
+    }
+
+    /// Ramps lift the bike; leaving a ramp lip with speed launches it.
+    /// Returns true when a landing cost speed (splashing into water).
+    fn step_vertical(
+        &mut self,
+        dt: f32,
+        course: &RiversideCourse,
+        start_x: f32,
+        start_z: f32,
+    ) -> bool {
+        let ground = course.ground_height(self.x, self.z);
+        if self.airborne {
+            self.vy -= GRAVITY * dt;
+            self.y += self.vy * dt;
+            if self.y > ground {
+                return false;
+            }
+            self.y = ground;
+            self.vy = 0.0;
+            self.airborne = false;
+            return match course.surface_at(self.x, self.z) {
+                Surface::Water => {
+                    self.speed *= BIKE_SPLASH_SPEED_KEPT;
+                    true
+                }
+                Surface::Road => {
+                    self.speed = (self.speed + BIKE_LANDING_BOOST).min(MAX_SPEED);
+                    false
+                }
+                Surface::Grass => false,
+            };
+        }
+        let previous_ground = course.ground_height(start_x, start_z);
+        if previous_ground > ground + 0.05 && self.speed > BIKE_MIN_LAUNCH_SPEED {
+            self.airborne = true;
+            self.y = previous_ground;
+            self.vy = self.speed * BIKE_RAMP_LAUNCH_RATIO;
+        } else {
+            self.y = ground;
+        }
+        false
+    }
+
+    fn overlaps_obstacle(&self, obstacle: Obstacle, x: f32, z: f32) -> bool {
+        let forward = (self.yaw.sin(), -self.yaw.cos());
+        [BIKE_PROBE_OFFSET_M, -BIKE_PROBE_OFFSET_M]
+            .into_iter()
+            .any(|probe| {
+                let (local_x, local_z) =
+                    obstacle.to_local(x + forward.0 * probe, z + forward.1 * probe);
+                let dx = local_x.abs() - obstacle.half_width;
+                let dz = local_z.abs() - obstacle.half_depth;
+                let (dx, dz) = (dx.max(0.0), dz.max(0.0));
+                dx * dx + dz * dz < BIKE_COLLISION_HALF_WIDTH * BIKE_COLLISION_HALF_WIDTH
+            })
+    }
+
+    fn step_throttle(&mut self, input: RiderInput, dt: f32, surface: Surface) {
+        let (top_speed, accel_scale, scrub) = match surface {
+            Surface::Road => (MAX_SPEED, 1.0, 0.0),
+            Surface::Grass => (MAX_SPEED * GRASS_MAX_SPEED_RATIO, 0.7, GRASS_SCRUB_DECEL),
+            Surface::Water => (MAX_SPEED * WATER_MAX_SPEED_RATIO, 0.5, WATER_SCRUB_DECEL),
+        };
+        if self.speed.abs() < 0.05 && input.brake_held && !input.pedal_held {
+            self.stopped_brake_secs += dt;
+        } else {
+            self.stopped_brake_secs = 0.0;
+        }
+        let reversing = self.speed < 0.0 || self.stopped_brake_secs >= BIKE_REVERSE_DELAY_SECS;
+        if reversing {
+            let reverse_top = BIKE_REVERSE_MAX_SPEED.min(top_speed);
+            if input.pedal_held {
+                self.speed = (self.speed + BIKE_BRAKE_DECEL * dt).min(0.0);
+            } else if input.brake_held {
+                self.speed = (self.speed - BIKE_REVERSE_ACCEL * accel_scale * dt).max(-reverse_top);
+            } else {
+                self.speed = (self.speed + BIKE_COAST_DECEL * 4.0 * dt).min(0.0);
+            }
+            if self.speed < -reverse_top {
+                self.speed = (self.speed + scrub * dt).min(-reverse_top);
+            }
+            if self.speed < 0.0 || input.pedal_held {
+                return;
+            }
+        }
+        if input.brake_held {
+            self.speed = (self.speed - BIKE_BRAKE_DECEL * dt).max(0.0);
+        } else if input.pedal_held && self.speed < top_speed {
+            // Strong launch that tapers toward top speed.
+            let falloff = 1.0 - BIKE_PEDAL_FALLOFF * (self.speed / top_speed).clamp(0.0, 1.0);
+            self.speed =
+                (self.speed + BIKE_PEDAL_ACCEL * accel_scale * falloff * dt).min(top_speed);
+        } else {
+            self.speed = (self.speed - BIKE_COAST_DECEL * dt).max(0.0);
+        }
+        // Soft ground scrubs off speed above its own top speed.
+        if self.speed > top_speed {
+            self.speed = (self.speed - scrub * dt).max(top_speed);
+        }
+    }
+
+    /// Pushes a point on the bike's centerline out of an obstacle box and
+    /// returns the outward world-space contact normal when they overlapped.
+    fn push_out_of_obstacle(
+        &mut self,
+        obstacle: Obstacle,
+        probe_offset: f32,
+    ) -> Option<(f32, f32)> {
+        let forward = (self.yaw.sin(), -self.yaw.cos());
+        let (probe_x, probe_z) = obstacle.to_local(
+            self.x + forward.0 * probe_offset,
+            self.z + forward.1 * probe_offset,
+        );
+        let (half_x, half_z) = (obstacle.half_width, obstacle.half_depth);
+        let closest_x = probe_x.clamp(-half_x, half_x);
+        let closest_z = probe_z.clamp(-half_z, half_z);
+        let (dx, dz) = (probe_x - closest_x, probe_z - closest_z);
+        let distance = (dx * dx + dz * dz).sqrt();
+        if distance >= BIKE_COLLISION_HALF_WIDTH {
+            return None;
+        }
+        let (normal, target) = if distance > 1e-4 {
+            let normal = (dx / distance, dz / distance);
+            let push = BIKE_COLLISION_HALF_WIDTH - distance;
+            (
+                normal,
+                (probe_x + normal.0 * push, probe_z + normal.1 * push),
+            )
+        } else {
+            // The probe is inside the box: leave through the nearest face.
+            let faces = [
+                (probe_x + half_x, (-1.0, 0.0)),
+                (half_x - probe_x, (1.0, 0.0)),
+                (probe_z + half_z, (0.0, -1.0)),
+                (half_z - probe_z, (0.0, 1.0)),
+            ];
+            let (_, normal) = faces
+                .into_iter()
+                .min_by(|a, b| a.0.total_cmp(&b.0))
+                .expect("four faces");
+            let edge = (
+                if normal.0 == 0.0 {
+                    probe_x
+                } else {
+                    normal.0 * half_x
+                },
+                if normal.1 == 0.0 {
+                    probe_z
+                } else {
+                    normal.1 * half_z
+                },
+            );
+            let target = (
+                edge.0 + normal.0 * BIKE_COLLISION_HALF_WIDTH,
+                edge.1 + normal.1 * BIKE_COLLISION_HALF_WIDTH,
+            );
+            (normal, target)
+        };
+        let (world_probe_x, world_probe_z) = obstacle.to_world(probe_x, probe_z);
+        let (world_target_x, world_target_z) = obstacle.to_world(target.0, target.1);
+        self.x += world_target_x - world_probe_x;
+        self.z += world_target_z - world_probe_z;
+        Some(local_to_world(normal.0, normal.1, obstacle.yaw))
+    }
+
+    /// Removes the velocity component into a contact surface. Glancing hits
+    /// keep most speed and deflect the heading along the surface; a fast
+    /// head-on obstacle hit is a crash that costs most of the speed.
+    fn absorb_impact(&mut self, normal: (f32, f32), crash_speed_kept: Option<f32>) -> bool {
+        let direction = self.speed.signum();
+        let forward = (self.yaw.sin() * direction, -self.yaw.cos() * direction);
+        let into_surface = -(forward.0 * normal.0 + forward.1 * normal.1);
+        if into_surface <= 0.0 || self.speed == 0.0 {
+            return false;
+        }
+        if let Some(kept) = crash_speed_kept
+            && into_surface > BIKE_CRASH_HEAD_ON_COS
+            && self.speed > BIKE_CRASH_SPEED
         {
-            self.speed = 0.0;
-            return previous_speed > 0.5;
+            self.speed *= kept;
+            return true;
         }
-
-        // Prediction and authority use the same authored road centerline and
-        // width. This also keeps turns continuous instead of imposing the old
-        // short prototype's global X boundary on the whole level.
-        if !riverside_course().contains(next_x, next_z) {
-            self.speed = (self.speed - 4.0 * dt).max(0.0);
-            return previous_speed > self.speed + 0.5;
+        let tangent = (
+            forward.0 + normal.0 * into_surface,
+            forward.1 + normal.1 * into_surface,
+        );
+        let tangent_length = (tangent.0 * tangent.0 + tangent.1 * tangent.1).sqrt();
+        self.speed *= (1.0 - into_surface * BIKE_CONTACT_SPEED_LOSS).max(0.0);
+        if tangent_length > 1e-3 && direction > 0.0 {
+            let tangent_yaw = (tangent.0 / tangent_length).atan2(-tangent.1 / tangent_length);
+            let deflect = shortest_angle_delta(self.yaw, tangent_yaw) * BIKE_CONTACT_DEFLECT;
+            self.yaw = (self.yaw + deflect).rem_euclid(std::f32::consts::TAU);
         }
-
-        self.x = next_x;
-        self.z = next_z;
-        previous_speed > 0.5 && self.speed == 0.0
+        false
     }
 }
 
@@ -741,8 +1067,94 @@ pub struct CourseProjection {
     pub yaw: f32,
 }
 
+/// What the bike is rolling on; the lawn and creeks are slower than paving.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Surface {
+    Road,
+    Grass,
+    Water,
+}
+
+/// An oriented rectangle in the same local frame convention as obstacles:
+/// local X across the heading, local Z along it (negative Z is forward).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct GroundPatch {
+    pub x: f32,
+    pub z: f32,
+    pub yaw: f32,
+    pub half_width: f32,
+    pub half_length: f32,
+}
+
+impl GroundPatch {
+    pub fn to_local(self, x: f32, z: f32) -> (f32, f32) {
+        let (dx, dz) = (x - self.x, z - self.z);
+        let (sin, cos) = self.yaw.sin_cos();
+        (dx * cos + dz * sin, -dx * sin + dz * cos)
+    }
+
+    pub fn contains(self, x: f32, z: f32) -> bool {
+        let (local_x, local_z) = self.to_local(x, z);
+        local_x.abs() <= self.half_width && local_z.abs() <= self.half_length
+    }
+}
+
+/// A wedge rising toward its forward lip; the bike launches off the lip.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Ramp {
+    pub patch: GroundPatch,
+    pub height: f32,
+}
+
+impl Ramp {
+    pub fn height_at(self, x: f32, z: f32) -> Option<f32> {
+        if !self.patch.contains(x, z) {
+            return None;
+        }
+        let (_, local_z) = self.patch.to_local(x, z);
+        // Local -Z is forward, so the lip sits at -half_length.
+        let rise = (self.patch.half_length - local_z) / (2.0 * self.patch.half_length);
+        Some(self.height * rise.clamp(0.0, 1.0))
+    }
+}
+
+/// An alternative paved path that leaves the main route and rejoins it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CourseBranch {
+    pub start_m: f32,
+    pub end_m: f32,
+    points: Vec<CoursePoint>,
+}
+
+impl CourseBranch {
+    pub fn length_m(&self) -> f32 {
+        self.points.last().map_or(0.0, |point| point.distance_m)
+    }
+
+    /// Centreline point at a distance along the branch.
+    pub fn point_at(&self, distance_m: f32) -> CourseProjection {
+        polyline_point_at(&self.points, distance_m, RoadSection::OpenRiverside)
+    }
+
+    pub fn project(&self, x: f32, z: f32) -> CourseProjection {
+        project_polyline(&self.points, x, z, |_| RoadSection::OpenRiverside)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct NearestRoadPoint {
+    pub x: f32,
+    pub z: f32,
+    pub distance_m: f32,
+}
+
 #[derive(Debug)]
 pub struct RiversideCourse {
+    seed: u64,
+    obstacles: Vec<Obstacle>,
+    branches: Vec<CourseBranch>,
+    ramps: Vec<Ramp>,
+    water: Vec<GroundPatch>,
     pieces: Vec<RoadPiece>,
     points: Vec<CoursePoint>,
     cover_volumes: Vec<CoverVolume>,
@@ -751,15 +1163,134 @@ pub struct RiversideCourse {
     length_m: f32,
 }
 
-/// The level layout is built once from the same lightweight data used by
+/// Seed of the hand-authored baseline layout used by tests and local preview.
+pub const AUTHORED_COURSE_SEED: u64 = 0;
+
+/// The baseline layout, built once from the same lightweight data used by
 /// rendering, Rider prediction, and the headless Server.
 pub fn riverside_course() -> &'static RiversideCourse {
     static COURSE: OnceLock<RiversideCourse> = OnceLock::new();
-    COURSE.get_or_init(RiversideCourse::build)
+    COURSE.get_or_init(|| RiversideCourse::build(AUTHORED_COURSE_SEED))
 }
 
+/// Returns the course for a seed. Client and Server derive identical
+/// geometry from the same seed, so only the seed crosses the network.
+pub fn course_for_seed(seed: u64) -> Arc<RiversideCourse> {
+    const CACHED_COURSES: usize = 8;
+    static CACHE: OnceLock<Mutex<Vec<Arc<RiversideCourse>>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(Vec::new()));
+    let mut cache = cache
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(index) = cache.iter().position(|course| course.seed == seed) {
+        let course = cache.remove(index);
+        cache.push(course.clone());
+        return course;
+    }
+    let course = Arc::new(RiversideCourse::build(seed));
+    if cache.len() >= CACHED_COURSES {
+        cache.remove(0);
+    }
+    cache.push(course.clone());
+    course
+}
+
+/// Small deterministic generator (SplitMix64). Integer-only state keeps
+/// native Server and WASM Client layouts bit-identical.
+struct CourseRng(u64);
+
+impl CourseRng {
+    fn next_u64(&mut self) -> u64 {
+        self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        let mut z = self.0;
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        z ^ (z >> 31)
+    }
+
+    /// Uniform integer in `low..=high`.
+    fn range(&mut self, low: usize, high: usize) -> usize {
+        low + (self.next_u64() % (high - low + 1) as u64) as usize
+    }
+
+    /// Uniform float in `[0, 1)`.
+    fn unit(&mut self) -> f32 {
+        (self.next_u64() >> 40) as f32 / (1u64 << 24) as f32
+    }
+
+    fn chance(&mut self, probability: f32) -> bool {
+        self.unit() < probability
+    }
+}
+
+/// Shortcut geometry: the creek sits at this fraction of the chord, and the
+/// ramp lip stops just short of it.
+const SHORTCUT_CREEK_FRACTION: f32 = 0.55;
+const SHORTCUT_CREEK_HALF_LENGTH_M: f32 = 3.5;
+const SHORTCUT_CREEK_HALF_WIDTH_M: f32 = 10.0;
+const SHORTCUT_RAMP_HALF_LENGTH_M: f32 = 2.0;
+const SHORTCUT_RAMP_HEIGHT_M: f32 = 0.9;
+
 impl RiversideCourse {
-    fn build() -> Self {
+    fn build(seed: u64) -> Self {
+        if seed == AUTHORED_COURSE_SEED {
+            return Self::build_authored();
+        }
+        let mut rng = CourseRng(seed);
+        let mut builder = CourseBuilder::new();
+
+        // Fixed skeleton: open riverside bends with one long detour, the
+        // bridge underpass landmark, then tighter technical bends. A straight
+        // shortcut with a creek jump cuts across every detour.
+        let open_groups = rng.range(3, 5);
+        let detour_group = rng.range(0, open_groups - 1);
+        for index in 0..open_groups {
+            if index == detour_group {
+                builder.straights(2, RoadSection::OpenRiverside);
+                let straights = rng.range(3, 4);
+                builder.detour(straights, RoadSection::OpenRiverside);
+                builder.straights(3, RoadSection::OpenRiverside);
+                continue;
+            }
+            let straights = rng.range(9, 13);
+            let lead = straights / 2;
+            builder.straights(lead, RoadSection::OpenRiverside);
+            let first_turn = alternating_turn(index);
+            builder.curve(first_turn, RoadSection::OpenRiverside);
+            builder.straights(straights - lead, RoadSection::OpenRiverside);
+            builder.curve(opposite_turn(first_turn), RoadSection::OpenRiverside);
+        }
+
+        builder.straights(50, RoadSection::BridgeUnderpass);
+
+        let narrow_groups = rng.range(5, 7);
+        let narrow_detour = rng.chance(0.6).then(|| rng.range(1, narrow_groups - 1));
+        for index in 0..narrow_groups {
+            if narrow_detour == Some(index) {
+                builder.straights(2, RoadSection::NarrowBends);
+                builder.detour(3, RoadSection::NarrowBends);
+                builder.straights(3, RoadSection::NarrowBends);
+                continue;
+            }
+            let first_turn = alternating_turn(index);
+            builder.straights(rng.range(4, 6), RoadSection::NarrowBends);
+            builder.curve(first_turn, RoadSection::NarrowBends);
+            builder.straights(rng.range(2, 3), RoadSection::NarrowBends);
+            builder.curve(opposite_turn(first_turn), RoadSection::NarrowBends);
+        }
+
+        let detours = builder.detours.clone();
+        let mut course = builder.finish(seed);
+        course.add_route_markers();
+        course.add_bridge_cover();
+        for (start_m, end_m) in detours {
+            course.add_shortcut(start_m, end_m);
+        }
+        course.add_random_obstacles(&mut rng);
+        course
+    }
+
+    fn build_authored() -> Self {
         let mut builder = CourseBuilder::new();
 
         // Four alternating S-bends keep the open section legible while
@@ -767,11 +1298,7 @@ impl RiversideCourse {
         for (index, straights) in [11, 11, 11, 12].into_iter().enumerate() {
             let lead = straights / 2;
             builder.straights(lead, RoadSection::OpenRiverside);
-            let first_turn = if index % 2 == 0 {
-                RoadPieceKind::CurveRight
-            } else {
-                RoadPieceKind::CurveLeft
-            };
+            let first_turn = alternating_turn(index);
             builder.curve(first_turn, RoadSection::OpenRiverside);
             builder.straights(straights - lead, RoadSection::OpenRiverside);
             builder.curve(opposite_turn(first_turn), RoadSection::OpenRiverside);
@@ -782,21 +1309,131 @@ impl RiversideCourse {
         // Repeated S-bends make the last section visibly more technical but
         // preserve broad enough radii for the existing bicycle controller.
         for index in 0..6 {
-            let first_turn = if index % 2 == 0 {
-                RoadPieceKind::CurveRight
-            } else {
-                RoadPieceKind::CurveLeft
-            };
+            let first_turn = alternating_turn(index);
             builder.straights(5, RoadSection::NarrowBends);
             builder.curve(first_turn, RoadSection::NarrowBends);
             builder.straights(2, RoadSection::NarrowBends);
             builder.curve(opposite_turn(first_turn), RoadSection::NarrowBends);
         }
 
-        let mut course = builder.finish();
+        let mut course = builder.finish(AUTHORED_COURSE_SEED);
         course.add_route_markers();
         course.add_bridge_cover();
+        course.obstacles = OBSTACLES.to_vec();
         course
+    }
+
+    /// A straight paved chord across a detour, interrupted by a creek. A
+    /// ramp before the creek lets a fast bike fly over it; a slow one lands
+    /// in the water and loses most of the time it hoped to save.
+    fn add_shortcut(&mut self, start_m: f32, end_m: f32) {
+        let from = self.point_at(start_m);
+        let to = self.point_at(end_m);
+        let (dx, dz) = (to.center_x - from.center_x, to.center_z - from.center_z);
+        let length_m = (dx * dx + dz * dz).sqrt();
+        let yaw = wrap_course_angle(dx.atan2(-dz));
+        let steps = length_m.ceil() as usize;
+        let points = (0..=steps)
+            .map(|step| {
+                let t = step as f32 / steps as f32;
+                CoursePoint {
+                    x: from.center_x + dx * t,
+                    z: from.center_z + dz * t,
+                    yaw,
+                    distance_m: length_m * t,
+                }
+            })
+            .collect();
+        let branch = CourseBranch {
+            start_m,
+            end_m,
+            points,
+        };
+        let creek_m = length_m * SHORTCUT_CREEK_FRACTION;
+        let creek = branch.point_at(creek_m);
+        self.water.push(GroundPatch {
+            x: creek.center_x,
+            z: creek.center_z,
+            yaw,
+            half_width: SHORTCUT_CREEK_HALF_WIDTH_M,
+            half_length: SHORTCUT_CREEK_HALF_LENGTH_M,
+        });
+        let ramp = branch
+            .point_at(creek_m - SHORTCUT_CREEK_HALF_LENGTH_M - 0.2 - SHORTCUT_RAMP_HALF_LENGTH_M);
+        self.ramps.push(Ramp {
+            patch: GroundPatch {
+                x: ramp.center_x,
+                z: ramp.center_z,
+                yaw,
+                half_width: BRANCH_HALF_WIDTH_M,
+                half_length: SHORTCUT_RAMP_HALF_LENGTH_M,
+            },
+            height: SHORTCUT_RAMP_HEIGHT_M,
+        });
+        self.branches.push(branch);
+    }
+
+    /// Scatters at most one road-aligned obstacle per straight piece. Each
+    /// obstacle sits off-centre so the opposite side always leaves a lane
+    /// much wider than the bike, and gates and the start stay clear.
+    fn add_random_obstacles(&mut self, rng: &mut CourseRng) {
+        const START_CLEAR_M: f32 = 24.0;
+        const GATE_CLEAR_M: f32 = 8.0;
+        let mut gates = self.checkpoints_m.clone();
+        gates.push(self.finish_distance_m);
+        let mut previous_piece_used = false;
+        for piece in self.pieces.clone() {
+            if piece.kind != RoadPieceKind::Straight {
+                previous_piece_used = false;
+                continue;
+            }
+            let probability = match piece.section {
+                RoadSection::OpenRiverside => 0.45,
+                RoadSection::BridgeUnderpass => 0.22,
+                RoadSection::NarrowBends => 0.35,
+            };
+            let roll = rng.chance(probability);
+            let along_m = piece.start_distance_m + 2.0 + rng.unit() * 4.0;
+            let kind = match rng.unit() {
+                roll if roll < 0.45 => ObstacleKind::Cone,
+                roll if roll < 0.8 => ObstacleKind::Bollard,
+                _ => ObstacleKind::Barrier,
+            };
+            let side = if rng.chance(0.5) { -1.0 } else { 1.0 };
+            let offset_m = match kind {
+                ObstacleKind::Barrier => 0.4 + rng.unit() * 0.6,
+                _ => 0.5 + rng.unit() * 1.0,
+            };
+            let near_gate = gates
+                .iter()
+                .any(|gate| (gate - along_m).abs() < GATE_CLEAR_M);
+            if !roll
+                || previous_piece_used
+                || along_m < START_CLEAR_M
+                || near_gate
+                || along_m > self.length_m - GATE_CLEAR_M
+            {
+                previous_piece_used = false;
+                continue;
+            }
+            let center = self.point_at(along_m);
+            let lateral_m = side * offset_m;
+            self.obstacles.push(Obstacle::new(
+                kind,
+                center.center_x + center.yaw.cos() * lateral_m,
+                center.center_z + center.yaw.sin() * lateral_m,
+                center.yaw,
+            ));
+            previous_piece_used = true;
+        }
+    }
+
+    pub fn seed(&self) -> u64 {
+        self.seed
+    }
+
+    pub fn obstacles(&self) -> &[Obstacle] {
+        &self.obstacles
     }
 
     pub fn pieces(&self) -> &[RoadPiece] {
@@ -846,7 +1483,8 @@ impl RiversideCourse {
         let crossing_z = from_z + (to_z - from_z) * fraction;
         let lateral_offset =
             (crossing_x - gate.center_x) * lateral_x + (crossing_z - gate.center_z) * lateral_z;
-        lateral_offset.abs() <= TRACK_HALF_WIDTH - BIKE_COLLISION_HALF_WIDTH
+        // Without rails the Rider may cross a gate on the lawn beside it.
+        lateral_offset.abs() <= PARK_BOUNDARY_M
     }
 
     fn add_route_markers(&mut self) {
@@ -942,79 +1580,78 @@ impl RiversideCourse {
 
     pub fn point_at(&self, distance_m: f32) -> CourseProjection {
         let target = distance_m.clamp(0.0, self.length_m);
-        let pair = self
-            .points
-            .windows(2)
-            .find(|pair| target <= pair[1].distance_m)
-            .unwrap_or_else(|| {
-                let end = self.points.len() - 1;
-                &self.points[end - 1..=end]
-            });
-        let span = pair[1].distance_m - pair[0].distance_m;
-        let alpha = if span > f32::EPSILON {
-            ((target - pair[0].distance_m) / span).clamp(0.0, 1.0)
-        } else {
-            0.0
-        };
-        CourseProjection {
-            distance_m: target,
-            lateral_m: 0.0,
-            center_distance_m: 0.0,
-            section: self.section_at(target),
-            center_x: pair[0].x + (pair[1].x - pair[0].x) * alpha,
-            center_z: pair[0].z + (pair[1].z - pair[0].z) * alpha,
-            yaw: approach_course_angle(pair[0].yaw, pair[1].yaw, alpha),
-        }
+        polyline_point_at(&self.points, target, self.section_at(target))
     }
 
     pub fn project(&self, x: f32, z: f32) -> CourseProjection {
-        let mut best = (
-            f32::INFINITY,
-            CourseProjection {
-                distance_m: 0.0,
-                lateral_m: 0.0,
-                center_distance_m: f32::INFINITY,
-                section: RoadSection::OpenRiverside,
-                center_x: 0.0,
-                center_z: 0.0,
-                yaw: 0.0,
-            },
-        );
-        for pair in self.points.windows(2) {
-            let dx = pair[1].x - pair[0].x;
-            let dz = pair[1].z - pair[0].z;
-            let length_squared = dx * dx + dz * dz;
-            let alpha = if length_squared > f32::EPSILON {
-                (((x - pair[0].x) * dx + (z - pair[0].z) * dz) / length_squared).clamp(0.0, 1.0)
-            } else {
-                0.0
-            };
-            let center_x = pair[0].x + dx * alpha;
-            let center_z = pair[0].z + dz * alpha;
-            let offset_x = x - center_x;
-            let offset_z = z - center_z;
-            let distance_squared = offset_x * offset_x + offset_z * offset_z;
-            if distance_squared >= best.0 {
-                continue;
-            }
-            let yaw = approach_course_angle(pair[0].yaw, pair[1].yaw, alpha);
-            best = (
-                distance_squared,
-                CourseProjection {
-                    distance_m: pair[0].distance_m
-                        + (pair[1].distance_m - pair[0].distance_m) * alpha,
-                    lateral_m: offset_x * yaw.cos() + offset_z * yaw.sin(),
-                    center_distance_m: distance_squared.sqrt(),
-                    section: self.section_at(
-                        pair[0].distance_m + (pair[1].distance_m - pair[0].distance_m) * alpha,
-                    ),
-                    center_x,
-                    center_z,
-                    yaw,
-                },
-            );
+        project_polyline(&self.points, x, z, |distance| self.section_at(distance))
+    }
+
+    /// Projects onto only the stretch of route between two distances, so a
+    /// follower near a detour's apex does not snap to the returning leg.
+    pub fn project_window(&self, x: f32, z: f32, from_m: f32, to_m: f32) -> CourseProjection {
+        let start = self
+            .points
+            .partition_point(|point| point.distance_m < from_m)
+            .saturating_sub(1);
+        let end = (self
+            .points
+            .partition_point(|point| point.distance_m <= to_m)
+            + 1)
+        .clamp(start + 2, self.points.len());
+        project_polyline(&self.points[start..end], x, z, |distance| {
+            self.section_at(distance)
+        })
+    }
+
+    pub fn branches(&self) -> &[CourseBranch] {
+        &self.branches
+    }
+
+    pub fn ramps(&self) -> &[Ramp] {
+        &self.ramps
+    }
+
+    /// Creek patches that cut across shortcut branches.
+    pub fn water(&self) -> &[GroundPatch] {
+        &self.water
+    }
+
+    pub fn surface_at(&self, x: f32, z: f32) -> Surface {
+        if self.water.iter().any(|patch| patch.contains(x, z)) {
+            return Surface::Water;
         }
-        best.1
+        // The bike's centre may reach the paved edge before its tyres leave it.
+        if self.project(x, z).center_distance_m <= TRACK_HALF_WIDTH
+            || self.ramps.iter().any(|ramp| ramp.patch.contains(x, z))
+            || self
+                .branches
+                .iter()
+                .any(|branch| branch.project(x, z).center_distance_m <= BRANCH_HALF_WIDTH_M)
+        {
+            return Surface::Road;
+        }
+        Surface::Grass
+    }
+
+    pub fn ground_height(&self, x: f32, z: f32) -> f32 {
+        self.ramps
+            .iter()
+            .filter_map(|ramp| ramp.height_at(x, z))
+            .fold(0.0, f32::max)
+    }
+
+    /// Closest centreline point over the main route and every branch.
+    pub fn nearest_road_point(&self, x: f32, z: f32) -> NearestRoadPoint {
+        std::iter::once(self.project(x, z))
+            .chain(self.branches.iter().map(|branch| branch.project(x, z)))
+            .map(|projection| NearestRoadPoint {
+                x: projection.center_x,
+                z: projection.center_z,
+                distance_m: projection.center_distance_m,
+            })
+            .min_by(|a, b| a.distance_m.total_cmp(&b.distance_m))
+            .expect("the main route always exists")
     }
 
     pub fn contains(&self, x: f32, z: f32) -> bool {
@@ -1028,6 +1665,8 @@ impl RiversideCourse {
 struct CourseBuilder {
     pieces: Vec<RoadPiece>,
     points: Vec<CoursePoint>,
+    /// Main-route (start, end) distances of each detour loop.
+    detours: Vec<(f32, f32)>,
     x: f32,
     z: f32,
     yaw: f32,
@@ -1038,6 +1677,7 @@ impl CourseBuilder {
     fn new() -> Self {
         Self {
             pieces: Vec::new(),
+            detours: Vec::new(),
             points: vec![CoursePoint {
                 x: 0.0,
                 z: BikeState::default().z,
@@ -1075,6 +1715,25 @@ impl CourseBuilder {
             self.distance_m += ROAD_STRAIGHT_LENGTH_M;
             self.advance(0.0, -ROAD_STRAIGHT_LENGTH_M);
         }
+    }
+
+    /// A symmetric loop out to the right (away from the river) that returns
+    /// to the original heading and line: right 60°, out, left 120°, back,
+    /// right 60°. A straight shortcut can then cut across it.
+    fn detour(&mut self, straights: usize, section: RoadSection) {
+        let start_m = self.distance_m;
+        for _ in 0..2 {
+            self.curve(RoadPieceKind::CurveRight, section);
+        }
+        self.straights(straights, section);
+        for _ in 0..4 {
+            self.curve(RoadPieceKind::CurveLeft, section);
+        }
+        self.straights(straights, section);
+        for _ in 0..2 {
+            self.curve(RoadPieceKind::CurveRight, section);
+        }
+        self.detours.push((start_m, self.distance_m));
     }
 
     fn curve(&mut self, kind: RoadPieceKind, section: RoadSection) {
@@ -1145,8 +1804,13 @@ impl CourseBuilder {
         self.z += dz;
     }
 
-    fn finish(self) -> RiversideCourse {
+    fn finish(self, seed: u64) -> RiversideCourse {
         RiversideCourse {
+            seed,
+            obstacles: Vec::new(),
+            branches: Vec::new(),
+            ramps: Vec::new(),
+            water: Vec::new(),
             pieces: self.pieces,
             points: self.points,
             cover_volumes: Vec::new(),
@@ -1157,11 +1821,104 @@ impl CourseBuilder {
     }
 }
 
+fn polyline_point_at(
+    points: &[CoursePoint],
+    distance_m: f32,
+    section: RoadSection,
+) -> CourseProjection {
+    let target = distance_m.clamp(0.0, points.last().map_or(0.0, |point| point.distance_m));
+    let pair = points
+        .windows(2)
+        .find(|pair| target <= pair[1].distance_m)
+        .unwrap_or_else(|| {
+            let end = points.len() - 1;
+            &points[end - 1..=end]
+        });
+    let span = pair[1].distance_m - pair[0].distance_m;
+    let alpha = if span > f32::EPSILON {
+        ((target - pair[0].distance_m) / span).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    CourseProjection {
+        distance_m: target,
+        lateral_m: 0.0,
+        center_distance_m: 0.0,
+        section,
+        center_x: pair[0].x + (pair[1].x - pair[0].x) * alpha,
+        center_z: pair[0].z + (pair[1].z - pair[0].z) * alpha,
+        yaw: approach_course_angle(pair[0].yaw, pair[1].yaw, alpha),
+    }
+}
+
+fn project_polyline(
+    points: &[CoursePoint],
+    x: f32,
+    z: f32,
+    section_at: impl Fn(f32) -> RoadSection,
+) -> CourseProjection {
+    let mut best = (
+        f32::INFINITY,
+        CourseProjection {
+            distance_m: 0.0,
+            lateral_m: 0.0,
+            center_distance_m: f32::INFINITY,
+            section: RoadSection::OpenRiverside,
+            center_x: 0.0,
+            center_z: 0.0,
+            yaw: 0.0,
+        },
+    );
+    for pair in points.windows(2) {
+        let dx = pair[1].x - pair[0].x;
+        let dz = pair[1].z - pair[0].z;
+        let length_squared = dx * dx + dz * dz;
+        let alpha = if length_squared > f32::EPSILON {
+            (((x - pair[0].x) * dx + (z - pair[0].z) * dz) / length_squared).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let center_x = pair[0].x + dx * alpha;
+        let center_z = pair[0].z + dz * alpha;
+        let offset_x = x - center_x;
+        let offset_z = z - center_z;
+        let distance_squared = offset_x * offset_x + offset_z * offset_z;
+        if distance_squared >= best.0 {
+            continue;
+        }
+        let yaw = approach_course_angle(pair[0].yaw, pair[1].yaw, alpha);
+        let distance_m = pair[0].distance_m + (pair[1].distance_m - pair[0].distance_m) * alpha;
+        best = (
+            distance_squared,
+            CourseProjection {
+                distance_m,
+                lateral_m: offset_x * yaw.cos() + offset_z * yaw.sin(),
+                center_distance_m: distance_squared.sqrt(),
+                section: RoadSection::OpenRiverside,
+                center_x,
+                center_z,
+                yaw,
+            },
+        );
+    }
+    let mut projection = best.1;
+    projection.section = section_at(projection.distance_m);
+    projection
+}
+
 fn local_to_world(local_x: f32, local_z: f32, yaw: f32) -> (f32, f32) {
     (
         yaw.cos() * local_x - yaw.sin() * local_z,
         yaw.sin() * local_x + yaw.cos() * local_z,
     )
+}
+
+fn alternating_turn(index: usize) -> RoadPieceKind {
+    if index.is_multiple_of(2) {
+        RoadPieceKind::CurveRight
+    } else {
+        RoadPieceKind::CurveLeft
+    }
 }
 
 fn opposite_turn(kind: RoadPieceKind) -> RoadPieceKind {
@@ -1224,9 +1981,10 @@ fn segment_cover_interval(
 #[cfg(test)]
 mod course_tests {
     use super::{
-        BIKE_COLLISION_HALF_WIDTH, BRIDGE_DECK_BOTTOM_M, BRIDGE_DECK_TOP_M, BikeState, CoverKind,
-        FIXED_DT, MAX_SPEED, ROAD_CURVE_LENGTH_M, ROAD_STRAIGHT_LENGTH_M, RiderInput,
-        RoadPieceKind, RoadSection, TRACK_HALF_WIDTH, WorldPosition, first_cover_intersection,
+        AUTHORED_COURSE_SEED, BIKE_COLLISION_HALF_WIDTH, BRIDGE_DECK_BOTTOM_M, BRIDGE_DECK_TOP_M,
+        BikeState, CoverKind, FIXED_DT, MAX_SPEED, OBSTACLES, PARK_BOUNDARY_M, ROAD_CURVE_LENGTH_M,
+        ROAD_STRAIGHT_LENGTH_M, RiderInput, RiversideCourse, RoadPieceKind, RoadSection, Surface,
+        TRACK_HALF_WIDTH, WorldPosition, course_for_seed, first_cover_intersection,
         line_of_sight_blocked, riverside_course,
     };
 
@@ -1300,8 +2058,19 @@ mod course_tests {
         let after = position(0.5, 0.0);
         assert!(course.crosses_forward_gate(before.0, before.1, after.0, after.1, gate_distance));
         assert!(!course.crosses_forward_gate(after.0, after.1, before.0, before.1, gate_distance));
-        let outside_before = position(-0.5, 2.2);
-        let outside_after = position(0.5, 2.2);
+        // Rail-free roads let the Rider cross on the lawn beside the gate,
+        // but not from beyond the park boundary.
+        let lawn_before = position(-0.5, 6.0);
+        let lawn_after = position(0.5, 6.0);
+        assert!(course.crosses_forward_gate(
+            lawn_before.0,
+            lawn_before.1,
+            lawn_after.0,
+            lawn_after.1,
+            gate_distance
+        ));
+        let outside_before = position(-0.5, PARK_BOUNDARY_M + 1.0);
+        let outside_after = position(0.5, PARK_BOUNDARY_M + 1.0);
         assert!(!course.crosses_forward_gate(
             outside_before.0,
             outside_before.1,
@@ -1394,8 +2163,12 @@ mod course_tests {
             y: 8.0,
             ..under_roof
         };
-        assert!(line_of_sight_blocked(under_roof, helicopter));
-        let hit = first_cover_intersection(under_roof, helicopter).unwrap();
+        assert!(line_of_sight_blocked(
+            riverside_course(),
+            under_roof,
+            helicopter
+        ));
+        let hit = first_cover_intersection(riverside_course(), under_roof, helicopter).unwrap();
         let hit_y = under_roof.y + (helicopter.y - under_roof.y) * hit;
         assert!((hit_y - BRIDGE_DECK_BOTTOM_M).abs() < 0.01);
 
@@ -1404,6 +2177,7 @@ mod course_tests {
             ..under_roof
         };
         assert!(!line_of_sight_blocked(
+            riverside_course(),
             bike_lane,
             WorldPosition {
                 y: BRIDGE_DECK_BOTTOM_M - 0.1,
@@ -1417,6 +2191,7 @@ mod course_tests {
         };
         assert_eq!(
             first_cover_intersection(
+                riverside_course(),
                 above_deck,
                 WorldPosition {
                     y: BRIDGE_DECK_TOP_M + 2.0,
@@ -1443,33 +2218,63 @@ mod course_tests {
         );
     }
 
-    #[test]
-    fn fixed_step_rider_can_follow_the_full_route_and_avoid_the_early_barrier() {
-        let course = riverside_course();
+    struct RouteDrive {
+        reached: bool,
+        highest_distance_m: f32,
+        elapsed_ticks: u32,
+        crashes: u32,
+        final_speed: f32,
+    }
+
+    /// A simple autopilot: follow the centreline and swing to the far side
+    /// of the next obstacle ahead, asserting the bike never leaves the road.
+    fn drive_route(course: &RiversideCourse) -> RouteDrive {
         let mut bike = BikeState::default();
-        let mut highest_distance = 0.0_f32;
-        let mut reached = false;
-        let mut elapsed_ticks = 0;
+        let mut drive = RouteDrive {
+            reached: false,
+            highest_distance_m: 0.0,
+            elapsed_ticks: 0,
+            crashes: 0,
+            final_speed: 0.0,
+        };
+        let obstacles: Vec<(f32, f32)> = course
+            .obstacles()
+            .iter()
+            .map(|obstacle| {
+                let projection = course.project(obstacle.x, obstacle.z);
+                (projection.distance_m, projection.lateral_m)
+            })
+            .collect();
         for _ in 0..60 * 240 {
-            elapsed_ticks += 1;
-            let projection = course.project(bike.x, bike.z);
-            highest_distance = highest_distance.max(projection.distance_m);
+            drive.elapsed_ticks += 1;
+            let projection = course.project_window(
+                bike.x,
+                bike.z,
+                drive.highest_distance_m - 5.0,
+                drive.highest_distance_m + 20.0,
+            );
+            drive.highest_distance_m = drive.highest_distance_m.max(projection.distance_m);
             if projection.distance_m >= course.length_m() - 3.0 {
-                reached = true;
+                drive.reached = true;
                 break;
             }
+            let detour = obstacles
+                .iter()
+                .filter(|(distance, _)| {
+                    (projection.distance_m - 2.0..projection.distance_m + 14.0).contains(distance)
+                })
+                .min_by(|a, b| a.0.total_cmp(&b.0))
+                .map_or(0.0, |(_, lateral)| -lateral.signum() * 1.5);
             let lookahead = course.point_at((projection.distance_m + 4.0).min(course.length_m()));
-            let obstacle_detour = if (30.0..45.0).contains(&projection.distance_m) {
-                1.25
-            } else {
-                0.0
-            };
-            let target_x = lookahead.center_x + lookahead.yaw.cos() * obstacle_detour;
-            let target_z = lookahead.center_z + lookahead.yaw.sin() * obstacle_detour;
+            let target_x = lookahead.center_x + lookahead.yaw.cos() * detour;
+            let target_z = lookahead.center_z + lookahead.yaw.sin() * detour;
             let desired_yaw = (target_x - bike.x).atan2(bike.z - target_z);
             let heading_error = angle_delta(bike.yaw, desired_yaw);
             let desired_curvature = course.curvature_at(projection.distance_m + 2.0);
-            let steer = ((desired_curvature + heading_error * 0.65) / 0.148).clamp(-1.0, 1.0);
+            let steer = ((desired_curvature + heading_error * 0.65) * bike.speed.max(1.0)
+                / crate::BIKE_YAW_RATE)
+                .clamp(-1.0, 1.0);
+            let speed_before = bike.speed;
             bike.step(
                 RiderInput {
                     pedal_held: true,
@@ -1477,31 +2282,135 @@ mod course_tests {
                     ..RiderInput::default()
                 },
                 FIXED_DT,
+                course,
             );
-            let after = course.project(bike.x, bike.z);
-            highest_distance = highest_distance.max(after.distance_m);
+            if bike.speed < speed_before * 0.5 {
+                drive.crashes += 1;
+            }
+            let after = course.project_window(
+                bike.x,
+                bike.z,
+                drive.highest_distance_m - 5.0,
+                drive.highest_distance_m + 20.0,
+            );
+            drive.highest_distance_m = drive.highest_distance_m.max(after.distance_m);
             assert!(
-                course.contains(bike.x, bike.z),
-                "bike left road at {:.1} m ({:.2}, {:.2})",
+                course.surface_at(bike.x, bike.z) == Surface::Road,
+                "seed {} bike left road at {:.1} m ({:.2}, {:.2})",
+                course.seed(),
                 after.distance_m,
                 bike.x,
                 bike.z
             );
         }
+        drive.final_speed = bike.speed;
+        drive
+    }
+
+    #[test]
+    fn fixed_step_rider_can_follow_the_full_route_and_avoid_the_early_barrier() {
+        let course = riverside_course();
+        let drive = drive_route(course);
         assert!(
-            reached,
+            drive.reached,
             "rider only reached {:.1} / {:.1} m at {:.1} m/s (max speed {:.1})",
-            highest_distance,
+            drive.highest_distance_m,
             course.length_m(),
-            bike.speed,
+            drive.final_speed,
             MAX_SPEED
         );
         eprintln!(
             "controlled Rider traversed {:.1} m in {:.1} s ({} fixed ticks)",
-            highest_distance,
-            elapsed_ticks as f32 * FIXED_DT,
-            elapsed_ticks
+            drive.highest_distance_m,
+            drive.elapsed_ticks as f32 * FIXED_DT,
+            drive.elapsed_ticks
         );
+    }
+
+    #[test]
+    fn course_seed_reproduces_the_same_layout_and_varies_between_seeds() {
+        let first = RiversideCourse::build(42);
+        let again = RiversideCourse::build(42);
+        assert_eq!(first.pieces(), again.pieces());
+        assert_eq!(first.obstacles(), again.obstacles());
+        assert_eq!(course_for_seed(42).obstacles(), first.obstacles());
+
+        let layouts: std::collections::BTreeSet<_> = (1..=16)
+            .map(|seed| {
+                let course = RiversideCourse::build(seed);
+                (
+                    course.pieces().len(),
+                    course.obstacles().len(),
+                    (course.length_m() * 10.0) as i64,
+                )
+            })
+            .collect();
+        assert!(
+            layouts.len() > 8,
+            "seeds produced only {} layouts",
+            layouts.len()
+        );
+
+        let authored = course_for_seed(AUTHORED_COURSE_SEED);
+        assert_eq!(authored.obstacles(), &OBSTACLES[..]);
+        assert_eq!(authored.length_m(), riverside_course().length_m());
+    }
+
+    #[test]
+    fn random_obstacles_always_leave_a_clear_lane_and_keep_gates_free() {
+        let clear_lane_m = 4.0 * BIKE_COLLISION_HALF_WIDTH;
+        for seed in 1..=400 {
+            let course = RiversideCourse::build(seed);
+            assert!(
+                !course.obstacles().is_empty(),
+                "seed {seed} has no obstacles"
+            );
+            assert_eq!(course.checkpoints_m().len(), 2);
+            let mut previous_distance = f32::NEG_INFINITY;
+            let mut placed: Vec<_> = course
+                .obstacles()
+                .iter()
+                .map(|obstacle| (course.project(obstacle.x, obstacle.z), *obstacle))
+                .collect();
+            placed.sort_by(|a, b| a.0.distance_m.total_cmp(&b.0.distance_m));
+            for (projection, obstacle) in placed {
+                assert!(
+                    projection.distance_m >= 24.0,
+                    "seed {seed} obstacle at start"
+                );
+                for gate in course
+                    .checkpoints_m()
+                    .iter()
+                    .chain(std::iter::once(&course.finish_distance_m()))
+                {
+                    assert!((gate - projection.distance_m).abs() >= 8.0);
+                }
+                assert!(projection.distance_m - previous_distance >= ROAD_STRAIGHT_LENGTH_M);
+                previous_distance = projection.distance_m;
+                let free_left = projection.lateral_m - obstacle.half_width + TRACK_HALF_WIDTH;
+                let free_right = TRACK_HALF_WIDTH - (projection.lateral_m + obstacle.half_width);
+                assert!(
+                    free_left.max(free_right) >= clear_lane_m,
+                    "seed {seed} obstacle at {:.1} m blocks the road",
+                    projection.distance_m
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn autopilot_completes_many_random_courses() {
+        for seed in 1..=10 {
+            let course = RiversideCourse::build(seed);
+            let drive = drive_route(&course);
+            assert!(
+                drive.reached,
+                "seed {seed}: reached {:.1} / {:.1} m",
+                drive.highest_distance_m,
+                course.length_m()
+            );
+            assert_eq!(drive.crashes, 0, "seed {seed} crashed into an obstacle");
+        }
     }
 }
 
@@ -1575,6 +2484,7 @@ pub struct RiderPrediction {
     current_tick: u64,
     bike: BikeState,
     history: VecDeque<PredictedFrame>,
+    course: Arc<RiversideCourse>,
 }
 
 impl RiderPrediction {
@@ -1583,6 +2493,7 @@ impl RiderPrediction {
             current_tick: tick,
             bike,
             history: VecDeque::new(),
+            course: course_for_seed(AUTHORED_COURSE_SEED),
         };
         prediction.push_frame(tick, RiderInput::default());
         prediction
@@ -1593,6 +2504,15 @@ impl RiderPrediction {
         self.bike = bike;
         self.history.clear();
         self.push_frame(tick, RiderInput::default());
+    }
+
+    /// Predicts against the room's course; call before resetting to a new round.
+    pub fn set_course(&mut self, course: Arc<RiversideCourse>) {
+        self.course = course;
+    }
+
+    pub fn course(&self) -> &Arc<RiversideCourse> {
+        &self.course
     }
 
     pub fn current_tick(&self) -> u64 {
@@ -1611,7 +2531,7 @@ impl RiderPrediction {
     }
 
     pub fn step(&mut self, input: RiderInput) -> bool {
-        let collision = self.bike.step(input, FIXED_DT);
+        let collision = self.bike.step(input, FIXED_DT, &self.course);
         self.current_tick = self.current_tick.saturating_add(1);
         self.push_frame(self.current_tick, input);
         collision
@@ -1788,6 +2708,10 @@ fn interpolate_bike(a: BikeState, b: BikeState, alpha: f32) -> BikeState {
         yaw: (a.yaw + shortest_angle_delta(a.yaw, b.yaw) * alpha).rem_euclid(std::f32::consts::TAU),
         speed: a.speed + (b.speed - a.speed) * alpha,
         steering_angle: a.steering_angle + (b.steering_angle - a.steering_angle) * alpha,
+        stopped_brake_secs: b.stopped_brake_secs,
+        y: a.y + (b.y - a.y) * alpha,
+        vy: a.vy + (b.vy - a.vy) * alpha,
+        airborne: b.airborne,
     }
 }
 
@@ -1803,64 +2727,327 @@ pub enum ObstacleKind {
     Barrier,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Obstacle {
     pub kind: ObstacleKind,
     pub x: f32,
     pub z: f32,
+    /// Half extent across the road (the obstacle's local X axis).
     pub half_width: f32,
+    /// Half extent along the road (the obstacle's local Z axis).
     pub half_depth: f32,
+    /// Same convention as route yaw: the local frame follows the road heading.
+    pub yaw: f32,
 }
 
 impl Obstacle {
+    const fn new(kind: ObstacleKind, x: f32, z: f32, yaw: f32) -> Self {
+        let (half_width, half_depth) = match kind {
+            ObstacleKind::Cone => (0.28, 0.28),
+            ObstacleKind::Bollard => (0.35, 0.35),
+            ObstacleKind::Barrier => (0.72, 0.3),
+        };
+        Self {
+            kind,
+            x,
+            z,
+            half_width,
+            half_depth,
+            yaw,
+        }
+    }
+
+    /// World offset from the obstacle centre expressed in its local frame.
+    pub fn to_local(self, x: f32, z: f32) -> (f32, f32) {
+        let (dx, dz) = (x - self.x, z - self.z);
+        let (sin, cos) = self.yaw.sin_cos();
+        (dx * cos + dz * sin, -dx * sin + dz * cos)
+    }
+
+    pub fn to_world(self, local_x: f32, local_z: f32) -> (f32, f32) {
+        let (dx, dz) = local_to_world(local_x, local_z, self.yaw);
+        (self.x + dx, self.z + dz)
+    }
+
+    /// A bike higher than this clears the obstacle in the air.
+    pub fn height(self) -> f32 {
+        match self.kind {
+            ObstacleKind::Cone => 0.7,
+            ObstacleKind::Bollard => 1.0,
+            ObstacleKind::Barrier => 1.2,
+        }
+    }
+
+    pub fn crash_speed_kept(self) -> f32 {
+        match self.kind {
+            ObstacleKind::Barrier => BIKE_CRASH_SPEED_KEPT,
+            ObstacleKind::Cone | ObstacleKind::Bollard => BIKE_SMALL_CRASH_SPEED_KEPT,
+        }
+    }
+
     pub fn blocks(self, x: f32, z: f32) -> bool {
-        (x - self.x).abs() <= self.half_width + 0.28 && (z - self.z).abs() <= self.half_depth + 0.45
+        let (local_x, local_z) = self.to_local(x, z);
+        local_x.abs() <= self.half_width + 0.28 && local_z.abs() <= self.half_depth + 0.45
     }
 }
 
+/// The hand-authored obstacles of the baseline course (`AUTHORED_COURSE_SEED`).
 pub const OBSTACLES: [Obstacle; 5] = [
-    Obstacle {
-        kind: ObstacleKind::Cone,
-        x: -1.15,
-        z: -11.0,
-        half_width: 0.28,
-        half_depth: 0.28,
-    },
-    Obstacle {
-        kind: ObstacleKind::Bollard,
-        x: 1.35,
-        z: -24.0,
-        half_width: 0.35,
-        half_depth: 0.35,
-    },
-    Obstacle {
-        kind: ObstacleKind::Barrier,
-        x: -0.55,
-        z: -38.0,
-        half_width: 0.72,
-        half_depth: 0.3,
-    },
-    Obstacle {
-        kind: ObstacleKind::Cone,
-        x: 1.1,
-        z: -50.0,
-        half_width: 0.28,
-        half_depth: 0.28,
-    },
-    Obstacle {
-        kind: ObstacleKind::Bollard,
-        x: -1.45,
-        z: -65.0,
-        half_width: 0.35,
-        half_depth: 0.35,
-    },
+    Obstacle::new(ObstacleKind::Cone, -1.15, -11.0, 0.0),
+    Obstacle::new(ObstacleKind::Bollard, 1.35, -24.0, 0.0),
+    Obstacle::new(ObstacleKind::Barrier, -0.55, -38.0, 0.0),
+    Obstacle::new(ObstacleKind::Cone, 1.1, -50.0, 0.0),
+    Obstacle::new(ObstacleKind::Bollard, -1.45, -65.0, 0.0),
 ];
+
+#[cfg(test)]
+mod handling_tests {
+    use super::{
+        BIKE_CRASH_SPEED, BikeState, FIXED_DT, GRASS_MAX_SPEED_RATIO, MAX_SPEED, OBSTACLES,
+        Obstacle, PARK_BOUNDARY_M, RiderInput, RiversideCourse, Surface, TRACK_HALF_WIDTH,
+        WATER_MAX_SPEED_RATIO, course_for_seed, riverside_course,
+    };
+
+    fn pedal(steer: f32) -> RiderInput {
+        RiderInput {
+            pedal_held: true,
+            steer,
+            ..RiderInput::default()
+        }
+    }
+
+    /// Starts the bike just behind an authored obstacle, aimed straight at it.
+    fn bike_facing(obstacle: Obstacle, speed: f32) -> BikeState {
+        BikeState {
+            x: obstacle.x,
+            z: obstacle.z + obstacle.half_depth + 1.0,
+            speed,
+            ..BikeState::default()
+        }
+    }
+
+    fn bike_facing_cone(speed: f32) -> BikeState {
+        bike_facing(OBSTACLES[0], speed)
+    }
+
+    #[test]
+    fn pedal_launch_reaches_most_of_top_speed_within_two_seconds() {
+        let mut bike = BikeState::default();
+        for _ in 0..120 {
+            bike.step(pedal(0.0), FIXED_DT, riverside_course());
+        }
+        assert!(
+            bike.speed > MAX_SPEED * 0.75,
+            "only reached {:.2} m/s",
+            bike.speed
+        );
+    }
+
+    #[test]
+    fn slow_head_on_obstacle_contact_can_steer_free() {
+        let cone = OBSTACLES[1];
+        let mut bike = bike_facing(cone, 3.0);
+        for _ in 0..60 {
+            bike.step(pedal(0.0), FIXED_DT, riverside_course());
+        }
+        assert!(bike.z > cone.z, "bike passed through the bollard");
+        // Steer left off the bollard, straighten up, then carry on past it.
+        for _ in 0..25 {
+            bike.step(pedal(-1.0), FIXED_DT, riverside_course());
+        }
+        for _ in 0..25 {
+            bike.step(pedal(1.0), FIXED_DT, riverside_course());
+        }
+        for _ in 0..30 {
+            bike.step(pedal(0.0), FIXED_DT, riverside_course());
+        }
+        assert!(
+            bike.z < cone.z - 1.0 && bike.speed > 3.0,
+            "bike stayed stuck at ({:.2}, {:.2}) speed={:.2}",
+            bike.x,
+            bike.z,
+            bike.speed
+        );
+    }
+
+    #[test]
+    fn glancing_obstacle_contact_slides_and_keeps_most_speed() {
+        let cone = OBSTACLES[1];
+        let mut bike = BikeState {
+            // Clips the cone's corner by a few centimetres.
+            x: cone.x - cone.half_width - 0.22,
+            z: cone.z + 2.0,
+            speed: 8.0,
+            ..BikeState::default()
+        };
+        for _ in 0..30 {
+            bike.step(pedal(0.0), FIXED_DT, riverside_course());
+        }
+        assert!(bike.z < cone.z - 1.0, "bike did not slide past the cone");
+        assert!(
+            bike.speed > 6.0,
+            "glancing contact kept only {:.2} m/s",
+            bike.speed
+        );
+    }
+
+    #[test]
+    fn fast_head_on_obstacle_hit_is_a_crash() {
+        let impact_speed = BIKE_CRASH_SPEED + 1.0;
+        let mut bike = bike_facing(OBSTACLES[1], impact_speed);
+        let crashed = (0..30).any(|_| bike.step(pedal(0.0), FIXED_DT, riverside_course()));
+        assert!(crashed);
+        // A small bollard costs speed but never stops the bike dead.
+        assert!(bike.speed < impact_speed * 0.7 && bike.speed > 0.0);
+    }
+
+    #[test]
+    fn riding_onto_the_lawn_is_allowed_but_slower() {
+        let course = riverside_course();
+        let start = course.point_at(4.0);
+        // Turn off the road onto the lawn at full speed.
+        let mut bike = BikeState {
+            x: start.center_x,
+            z: start.center_z,
+            yaw: start.yaw + 1.2,
+            speed: MAX_SPEED,
+            ..BikeState::default()
+        };
+        for _ in 0..120 {
+            bike.step(pedal(0.0), FIXED_DT, course);
+        }
+        assert_eq!(course.surface_at(bike.x, bike.z), Surface::Grass);
+        assert!(course.project(bike.x, bike.z).center_distance_m > TRACK_HALF_WIDTH + 1.0);
+        assert!(
+            bike.speed <= MAX_SPEED * GRASS_MAX_SPEED_RATIO + 0.01,
+            "grass kept {:.2} m/s",
+            bike.speed
+        );
+    }
+
+    #[test]
+    fn park_boundary_stops_the_bike_wandering_off() {
+        let course = riverside_course();
+        let start = course.point_at(30.0);
+        let mut bike = BikeState {
+            x: start.center_x,
+            z: start.center_z,
+            yaw: start.yaw + std::f32::consts::FRAC_PI_2,
+            ..BikeState::default()
+        };
+        for _ in 0..60 * 12 {
+            bike.step(pedal(0.0), FIXED_DT, course);
+            assert!(course.nearest_road_point(bike.x, bike.z).distance_m <= PARK_BOUNDARY_M + 1e-3);
+        }
+    }
+
+    fn shortcut_course() -> std::sync::Arc<RiversideCourse> {
+        (1..)
+            .map(course_for_seed)
+            .find(|course| !course.branches().is_empty())
+            .expect("random courses include shortcuts")
+    }
+
+    /// Rides the shortcut chord straight at the creek from a standing start
+    /// far enough back to reach `speed`.
+    fn ride_shortcut(course: &RiversideCourse, speed: f32) -> (BikeState, bool, f32) {
+        let branch = &course.branches()[0];
+        let creek = course.water()[0];
+        let creek_m = branch.project(creek.x, creek.z).distance_m;
+        let start = branch.point_at(creek_m - 16.0);
+        let mut bike = BikeState {
+            x: start.center_x,
+            z: start.center_z,
+            yaw: start.yaw,
+            speed,
+            ..BikeState::default()
+        };
+        let mut launched = false;
+        let mut peak = 0.0_f32;
+        for _ in 0..60 * 5 {
+            // Hold the speed constant on approach so the test isolates the jump.
+            bike.step(RiderInput::default(), FIXED_DT, course);
+            if !bike.airborne && !launched {
+                bike.speed = speed;
+            }
+            launched |= bike.airborne;
+            peak = peak.max(bike.y);
+        }
+        (bike, launched, peak)
+    }
+
+    #[test]
+    fn fast_bike_jumps_the_shortcut_creek_and_a_slow_one_splashes() {
+        let course = shortcut_course();
+        let (fast, launched, peak) = ride_shortcut(&course, MAX_SPEED);
+        assert!(launched && peak > 1.0, "no real jump (peak {peak:.2} m)");
+        assert!(!fast.airborne);
+        assert_ne!(course.surface_at(fast.x, fast.z), Surface::Water);
+        assert!(
+            fast.speed > MAX_SPEED * 0.8,
+            "fast landing kept {:.2}",
+            fast.speed
+        );
+
+        let (slow, launched, _) = ride_shortcut(&course, 5.0);
+        assert!(launched, "even a slow bike hops off the lip");
+        assert!(
+            slow.speed <= MAX_SPEED * WATER_MAX_SPEED_RATIO + 0.01,
+            "slow bike kept {:.2} m/s after the creek",
+            slow.speed
+        );
+    }
+
+    #[test]
+    fn shortcut_is_much_shorter_than_its_detour() {
+        let course = shortcut_course();
+        for branch in course.branches() {
+            assert!(branch.length_m() < (branch.end_m - branch.start_m) * 0.75);
+        }
+    }
+
+    #[test]
+    fn knocking_a_cone_only_trims_speed() {
+        let cone = OBSTACLES[0];
+        let mut bike = bike_facing_cone(MAX_SPEED);
+        let mut hits = 0;
+        for _ in 0..30 {
+            if bike.step(pedal(0.0), FIXED_DT, riverside_course()) {
+                hits += 1;
+            }
+        }
+        assert_eq!(hits, 1, "a cone should only be hit once");
+        assert!(bike.z < cone.z - 1.0, "bike should ride through the cone");
+        assert!(bike.speed > MAX_SPEED * 0.8);
+    }
+
+    #[test]
+    fn holding_brake_while_stopped_reverses_after_a_short_delay() {
+        let mut bike = BikeState::default();
+        let brake = RiderInput {
+            brake_held: true,
+            ..RiderInput::default()
+        };
+        for _ in 0..6 {
+            bike.step(brake, FIXED_DT, riverside_course());
+        }
+        assert_eq!(bike.speed, 0.0);
+        for _ in 0..60 {
+            bike.step(brake, FIXED_DT, riverside_course());
+        }
+        assert!(bike.speed < -1.0, "reverse speed {:.2}", bike.speed);
+        for _ in 0..30 {
+            bike.step(pedal(0.0), FIXED_DT, riverside_course());
+        }
+        assert!(bike.speed >= 0.0, "pedal should cancel reverse");
+    }
+}
 
 #[cfg(test)]
 mod combat_aim_tests {
     use super::{
         BikeState, GUNNER_AIM_ORIGIN_REAR_M, GunnerInput, WorldPosition, evaluate_gunner_aim,
-        gunner_aim_origin, line_of_sight_blocked,
+        gunner_aim_origin, line_of_sight_blocked, riverside_course,
     };
 
     #[test]
@@ -1869,6 +3056,7 @@ mod combat_aim_tests {
         let origin_y = 1.84;
         let pitch = (8.0_f32 - origin_y).atan2(14.0 - 1.03);
         let aim = evaluate_gunner_aim(
+            riverside_course(),
             bike,
             GunnerInput {
                 pitch,
@@ -1894,8 +3082,10 @@ mod combat_aim_tests {
             let origin_z = bike.z + 1.03;
             let pitch = (target.y - 1.84).atan2((target.z - origin_z).abs());
             let aim = evaluate_gunner_aim(
+                riverside_course(),
                 bike,
                 GunnerInput {
+                    weapon: Default::default(),
                     yaw,
                     pitch,
                     aim_held: true,
@@ -1916,8 +3106,7 @@ mod combat_aim_tests {
             x: 4.0,
             z: -3.0,
             yaw: std::f32::consts::FRAC_PI_2,
-            speed: 0.0,
-            steering_angle: 0.0,
+            ..BikeState::default()
         };
         let origin = gunner_aim_origin(bike);
         assert!(
@@ -1933,6 +3122,7 @@ mod combat_aim_tests {
             z: origin.z,
         };
         let aim = evaluate_gunner_aim(
+            riverside_course(),
             bike,
             GunnerInput {
                 pitch: (6.0_f32).atan2(14.0),
@@ -1962,12 +3152,20 @@ mod combat_aim_tests {
             y: 1.0,
             z: -30.0,
         };
-        assert!(line_of_sight_blocked(low_origin, low_target));
+        assert!(line_of_sight_blocked(
+            riverside_course(),
+            low_origin,
+            low_target
+        ));
 
         let high_target = WorldPosition {
             y: 8.0,
             ..low_target
         };
-        assert!(!line_of_sight_blocked(low_origin, high_target));
+        assert!(!line_of_sight_blocked(
+            riverside_course(),
+            low_origin,
+            high_target
+        ));
     }
 }

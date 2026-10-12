@@ -50,13 +50,13 @@ fn input_for_tick(tick: u64) -> RiderInput {
     if (60..90).contains(&tick) {
         RiderInput {
             pedal_held: true,
-            steer: 1.0,
+            steer: 0.4,
             ..default()
         }
     } else if (90..120).contains(&tick) {
         RiderInput {
             pedal_held: true,
-            steer: -1.0,
+            steer: -0.4,
             ..default()
         }
     } else if tick < 180 {
@@ -64,7 +64,7 @@ fn input_for_tick(tick: u64) -> RiderInput {
             pedal_held: true,
             ..default()
         }
-    } else if tick < 300 {
+    } else if tick < 250 {
         RiderInput {
             brake_held: true,
             ..default()
@@ -144,7 +144,7 @@ fn run_matrix_case(fps: u32, rtt_ms: u32, stall: Option<(u64, u64)>) -> MatrixRe
             server_input = RiderInput::default();
             last_input_received_tick = None;
         }
-        server_bike.step(server_input, FIXED_DT);
+        server_bike.step(server_input, FIXED_DT, riverside_course());
 
         if wall_tick % (SIMULATION_HZ / SNAPSHOT_HZ) as u64 == 0 {
             snapshot_queue.push_back(SnapshotPacket {
@@ -364,7 +364,7 @@ fn reconciliation_restores_same_tick_then_replays_unconfirmed_held_input() {
 
     let mut authority_at_104 = start;
     for _ in 0..4 {
-        authority_at_104.step(pedal, FIXED_DT);
+        authority_at_104.step(pedal, FIXED_DT, riverside_course());
     }
     let corrected_input = RiderInput {
         pedal_held: true,
@@ -384,7 +384,11 @@ fn reconciliation_restores_same_tick_then_replays_unconfirmed_held_input() {
 
     let mut expected = authority_at_104;
     for tick in 105..=109 {
-        expected.step(if tick == 107 { corrected_input } else { pedal }, FIXED_DT);
+        expected.step(
+            if tick == 107 { corrected_input } else { pedal },
+            FIXED_DT,
+            riverside_course(),
+        );
     }
     assert_eq!(predicted.bike(), expected);
 }
@@ -404,7 +408,7 @@ fn stationary_steer_moves_the_fork_not_the_bicycle_body() {
         ..default()
     };
     for _ in 0..30 {
-        bike.step(turn_left, FIXED_DT);
+        bike.step(turn_left, FIXED_DT, riverside_course());
     }
     assert_eq!(bike.x, initial.x);
     assert_eq!(bike.z, initial.z);
@@ -419,7 +423,7 @@ fn stationary_steer_moves_the_fork_not_the_bicycle_body() {
         ..default()
     };
     for _ in 0..60 {
-        bike.step(pedal_turn, FIXED_DT);
+        bike.step(pedal_turn, FIXED_DT, riverside_course());
     }
     assert_ne!(bike.yaw, previous_yaw);
     let yaw_delta = (bike.yaw - initial.yaw + std::f32::consts::PI)

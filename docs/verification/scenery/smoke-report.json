@@ -1,0 +1,26 @@
+{
+  "date": "2026-10-12",
+  "environment": "Headless Chrome, WebGL2 via ANGLE/SwiftShader",
+  "mode": "Offline local preview; lobby overlay hidden only by the capture script",
+  "screenshots": [
+    "rider.png",
+    "river-look.png",
+    "gunner.png"
+  ],
+  "runtime_errors": [],
+  "visual_checks": [
+    "Rider road, river, trees and skyline visible",
+    "Right-button free-look shows riverbank",
+    "V switches to Gunner with clear center view and continued scenery behind start"
+  ],
+  "build_checks": [
+    "trunk build",
+    "cargo clippy --workspace --all-targets",
+    "cargo fmt --all --check",
+    "cargo test -p riverside-common: 16 passed"
+  ],
+  "limitations": [
+    "Provided Google panorama unavailable (HTTP 403); not an exact reconstruction",
+    "Hardware GPU performance and full-route playthrough not measured in this visual check"
+  ]
+}
