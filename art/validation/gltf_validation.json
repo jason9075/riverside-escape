@@ -3,7 +3,7 @@
   "models": [
     {
       "file": "bicycle.glb",
-      "sha256": "89949f223884fb44e2af986121ad10b675e4b671a0a38bfe60d3c3f0f47dc1d9",
+      "sha256": "c770a1e7491920f269d8353e0fd3e1bd0b48af1a406b1192de59804752337a5c",
       "errors": 0,
       "warnings": 0,
       "messages": [
@@ -114,12 +114,18 @@
           "message": "This object may be unused.",
           "severity": 2,
           "pointer": "/meshes/17/primitives/0/attributes/TEXCOORD_0"
+        },
+        {
+          "code": "UNUSED_OBJECT",
+          "message": "This object may be unused.",
+          "severity": 2,
+          "pointer": "/meshes/18/primitives/0/attributes/TEXCOORD_0"
         }
       ]
     },
     {
       "file": "rider.glb",
-      "sha256": "e62f125baf2fbaa178a4850491a9771e25fc1156a820b3273e68b90b92e6ef30",
+      "sha256": "a28fc5628297921c99e4821f6cc4c1cbe74ec85a293c54a9c854d47544f3196b",
       "errors": 0,
       "warnings": 0,
       "messages": [
@@ -248,12 +254,36 @@
           "message": "This object may be unused.",
           "severity": 2,
           "pointer": "/meshes/20/primitives/0/attributes/TEXCOORD_0"
+        },
+        {
+          "code": "UNUSED_OBJECT",
+          "message": "This object may be unused.",
+          "severity": 2,
+          "pointer": "/meshes/21/primitives/0/attributes/TEXCOORD_0"
+        },
+        {
+          "code": "UNUSED_OBJECT",
+          "message": "This object may be unused.",
+          "severity": 2,
+          "pointer": "/meshes/22/primitives/0/attributes/TEXCOORD_0"
+        },
+        {
+          "code": "UNUSED_OBJECT",
+          "message": "This object may be unused.",
+          "severity": 2,
+          "pointer": "/meshes/23/primitives/0/attributes/TEXCOORD_0"
+        },
+        {
+          "code": "UNUSED_OBJECT",
+          "message": "This object may be unused.",
+          "severity": 2,
+          "pointer": "/meshes/24/primitives/0/attributes/TEXCOORD_0"
         }
       ]
     },
     {
       "file": "gunner.glb",
-      "sha256": "9d2e548ca159feb7d21529a3ce534bd3f74db53b91bcc79bcdffe24da3d37e08",
+      "sha256": "e513bb17726743988204888dd8357db6238d1c4b9bba3017672252d5c68a5a67",
       "errors": 0,
       "warnings": 0,
       "messages": [
@@ -376,12 +406,36 @@
           "message": "This object may be unused.",
           "severity": 2,
           "pointer": "/meshes/19/primitives/0/attributes/TEXCOORD_0"
+        },
+        {
+          "code": "UNUSED_OBJECT",
+          "message": "This object may be unused.",
+          "severity": 2,
+          "pointer": "/meshes/20/primitives/0/attributes/TEXCOORD_0"
+        },
+        {
+          "code": "UNUSED_OBJECT",
+          "message": "This object may be unused.",
+          "severity": 2,
+          "pointer": "/meshes/21/primitives/0/attributes/TEXCOORD_0"
+        },
+        {
+          "code": "UNUSED_OBJECT",
+          "message": "This object may be unused.",
+          "severity": 2,
+          "pointer": "/meshes/22/primitives/0/attributes/TEXCOORD_0"
+        },
+        {
+          "code": "UNUSED_OBJECT",
+          "message": "This object may be unused.",
+          "severity": 2,
+          "pointer": "/meshes/23/primitives/0/attributes/TEXCOORD_0"
         }
       ]
     },
     {
       "file": "launcher.glb",
-      "sha256": "c2bd65cf37224eaa764c2f76ba26aa32302bd1d0e9a139ea2fe8954fe249c049",
+      "sha256": "b67e30d72dcdd4f99ec370c82b2f64d891a35ba019b21193191dddb7cf1c1b79",
       "errors": 0,
       "warnings": 0,
       "messages": [
@@ -402,18 +456,12 @@
           "message": "This object may be unused.",
           "severity": 2,
           "pointer": "/meshes/2/primitives/0/attributes/TEXCOORD_0"
-        },
-        {
-          "code": "UNUSED_OBJECT",
-          "message": "This object may be unused.",
-          "severity": 2,
-          "pointer": "/meshes/3/primitives/0/attributes/TEXCOORD_0"
         }
       ]
     },
     {
       "file": "missile.glb",
-      "sha256": "63c5b75326d7bde26ba1243868a32c75f11937cfeddf3bb68cfc148f0fdbf9d8",
+      "sha256": "2dd9c3621426ca6903e699e1f0c001bebd3329c632f4304a8ee2e47a6ebd505c",
       "errors": 0,
       "warnings": 0,
       "messages": [
@@ -439,7 +487,7 @@
     },
     {
       "file": "helicopter.glb",
-      "sha256": "e94c50a3b15aea72315edfecb697caa93cabac8f039c7078562df8e7dfdf6069",
+      "sha256": "f8bcacff7c0006e76e3121bcafd5806c2e3c06fc07421cf9df8710cd92fee648",
       "errors": 0,
       "warnings": 0,
       "messages": [
@@ -615,7 +663,7 @@
     },
     {
       "file": "traffic_cone.glb",
-      "sha256": "fcc1850db0075b0499e0c1f3473a5a3d5b44ec444b1766047aa55696c3699365",
+      "sha256": "8989a314874bd5af933aa2e6aa2f687858fc4de057ffb183835adf7775901b50",
       "errors": 0,
       "warnings": 0,
       "messages": [
@@ -641,7 +689,7 @@
     },
     {
       "file": "bollard.glb",
-      "sha256": "f3dcf0a69df80b8ea5ee07adcee0b9ff373da46b0e43d0e3d75d70772576429a",
+      "sha256": "30897fe4e5dd481ca6306aa4bd6861fd4ce7752cfc94e726e529bf1bae78d570",
       "errors": 0,
       "warnings": 0,
       "messages": [
@@ -673,7 +721,7 @@
     },
     {
       "file": "concrete_barrier.glb",
-      "sha256": "1a49480a372a99d79d953c3522852627089fc7161a488e0c168e84f45c30d2c7",
+      "sha256": "0cd75a575162778ca9ea6af666667e88cb81b8f91b9683d02a636e3873440a0c",
       "errors": 0,
       "warnings": 0,
       "messages": [
@@ -687,7 +735,7 @@
     },
     {
       "file": "railing.glb",
-      "sha256": "7f9649ccc04c1f6c1c3e4fd4155e5664fe6d64f987c0052bd7b71dab64fa8fec",
+      "sha256": "316540d8b1f9b38731454435891a3ef2c6d53c7884ab4e2b6ff281d470338146",
       "errors": 0,
       "warnings": 0,
       "messages": [
@@ -707,7 +755,7 @@
     },
     {
       "file": "bridge_pier.glb",
-      "sha256": "9d5400441db9e7d88d7d3066a35addb44d7976376a28e923edf92f3633749bc7",
+      "sha256": "0be3ec0eb7d0734d998ff3ecd57c015190aa72e2f119d6a74c7f3d04b99bf678",
       "errors": 0,
       "warnings": 0,
       "messages": [
@@ -727,7 +775,7 @@
     },
     {
       "file": "riverside_tree.glb",
-      "sha256": "63b82d6874fc4ac7b6a775f0dce4d9c92f0f8cd474383b5784d176d268af838d",
+      "sha256": "a34ccf19b1328820a4aa4aaa55c237965ea4383f8481a5d6a0c9ba99676b42ed",
       "errors": 0,
       "warnings": 0,
       "messages": [
@@ -759,7 +807,7 @@
     },
     {
       "file": "riverside_lamp.glb",
-      "sha256": "9fa66b55e136a6c586ae06086b281b6648884ffda15d548b604d6265a73e38ee",
+      "sha256": "f9779fa8dade575f17004a076e72f55d4d07ba8d6c1f46eebf100b87d3b08fbe",
       "errors": 0,
       "warnings": 0,
       "messages": [
@@ -791,7 +839,7 @@
     },
     {
       "file": "road_straight.glb",
-      "sha256": "987dce687d57e77dc437f2b10bc9cace4c7ecdaac4681e6b8a93c0e6df0eb98c",
+      "sha256": "c5375a1bcfb6599a91eff5c47d2f126910abcf19ceb3160f7e383fab576bf6de",
       "errors": 0,
       "warnings": 0,
       "messages": [
@@ -827,6 +875,62 @@
       "errors": 0,
       "warnings": 0,
       "messages": []
+    },
+    {
+      "file": "shotgun.glb",
+      "sha256": "9cb92a2f14c4cc1356079e6de2a8ad67ea936706bb58d9fa326462ec1fd7f4dc",
+      "errors": 0,
+      "warnings": 0,
+      "messages": [
+        {
+          "code": "UNUSED_OBJECT",
+          "message": "This object may be unused.",
+          "severity": 2,
+          "pointer": "/meshes/0/primitives/0/attributes/TEXCOORD_0"
+        },
+        {
+          "code": "UNUSED_OBJECT",
+          "message": "This object may be unused.",
+          "severity": 2,
+          "pointer": "/meshes/1/primitives/0/attributes/TEXCOORD_0"
+        },
+        {
+          "code": "UNUSED_OBJECT",
+          "message": "This object may be unused.",
+          "severity": 2,
+          "pointer": "/meshes/2/primitives/0/attributes/TEXCOORD_0"
+        },
+        {
+          "code": "UNUSED_OBJECT",
+          "message": "This object may be unused.",
+          "severity": 2,
+          "pointer": "/meshes/3/primitives/0/attributes/TEXCOORD_0"
+        },
+        {
+          "code": "UNUSED_OBJECT",
+          "message": "This object may be unused.",
+          "severity": 2,
+          "pointer": "/meshes/4/primitives/0/attributes/TEXCOORD_0"
+        },
+        {
+          "code": "UNUSED_OBJECT",
+          "message": "This object may be unused.",
+          "severity": 2,
+          "pointer": "/meshes/5/primitives/0/attributes/TEXCOORD_0"
+        },
+        {
+          "code": "UNUSED_OBJECT",
+          "message": "This object may be unused.",
+          "severity": 2,
+          "pointer": "/meshes/6/primitives/0/attributes/TEXCOORD_0"
+        },
+        {
+          "code": "UNUSED_OBJECT",
+          "message": "This object may be unused.",
+          "severity": 2,
+          "pointer": "/meshes/7/primitives/0/attributes/TEXCOORD_0"
+        }
+      ]
     }
   ]
 }

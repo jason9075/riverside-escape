@@ -12,9 +12,9 @@
       "id": "bicycle",
       "file": "bicycle.glb",
       "scene": "Scene0",
-      "bytes": 234140,
+      "bytes": 234324,
       "triangles": 3608,
-      "mesh_objects": 18,
+      "mesh_objects": 19,
       "bounds_min": [
         -0.34,
         -0.1422,
@@ -86,6 +86,36 @@
           "parent": "bicycle.Root",
           "socket": false
         },
+        "bicycle.Pedal_R": {
+          "position": [
+            0.2145,
+            0.2,
+            0.1
+          ],
+          "rotation_xyzw": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "parent": "bicycle.Crank",
+          "socket": false
+        },
+        "bicycle.Pedal_L": {
+          "position": [
+            -0.2145,
+            0.5,
+            0.1
+          ],
+          "rotation_xyzw": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "parent": "bicycle.Crank",
+          "socket": false
+        },
         "bicycle.Seat_Rider": {
           "position": [
             0.0,
@@ -137,12 +167,12 @@
       "id": "rider",
       "file": "rider.glb",
       "scene": "Scene0",
-      "bytes": 120148,
-      "triangles": 1420,
-      "mesh_objects": 21,
+      "bytes": 197908,
+      "triangles": 2396,
+      "mesh_objects": 25,
       "bounds_min": [
         -0.342,
-        -0.8625,
+        -0.89,
         -0.732
       ],
       "bounds_max": [
@@ -218,27 +248,42 @@
             -0.025
           ],
           "rotation_xyzw": [
+            0.530848,
             0.0,
-            0.0,
-            0.0,
-            1.0
+            -0.042362,
+            0.846407
           ],
           "parent": "rider.Root",
           "socket": false
         },
         "rider.Knee_-1": {
           "position": [
-            -0.175,
-            -0.25,
-            -0.315
+            -0.16012,
+            -0.18178,
+            -0.40242
           ],
           "rotation_xyzw": [
-            0.0,
+            -0.337364,
+            -0.0,
+            -0.067345,
+            0.938962
+          ],
+          "parent": "rider.Hip_-1",
+          "socket": false
+        },
+        "rider.Ankle_-1": {
+          "position": [
+            -0.2145,
+            -0.51,
+            -0.13
+          ],
+          "rotation_xyzw": [
+            -0.0,
             0.0,
             0.0,
             1.0
           ],
-          "parent": "rider.Hip_-1",
+          "parent": "rider.Knee_-1",
           "socket": false
         },
         "rider.Shoulder_R": {
@@ -278,27 +323,42 @@
             -0.025
           ],
           "rotation_xyzw": [
+            0.195361,
             0.0,
-            0.0,
-            0.0,
-            1.0
+            0.048932,
+            0.97951
           ],
           "parent": "rider.Root",
           "socket": false
         },
         "rider.Knee_1": {
           "position": [
-            0.175,
-            -0.25,
-            -0.315
+            0.17026,
+            -0.38593,
+            -0.18574
+          ],
+          "rotation_xyzw": [
+            -0.065039,
+            0.0,
+            0.05162,
+            0.996547
+          ],
+          "parent": "rider.Hip_1",
+          "socket": false
+        },
+        "rider.Ankle_1": {
+          "position": [
+            0.2145,
+            -0.81,
+            -0.13
           ],
           "rotation_xyzw": [
             0.0,
             0.0,
-            0.0,
+            -0.0,
             1.0
           ],
-          "parent": "rider.Hip_1",
+          "parent": "rider.Knee_1",
           "socket": false
         },
         "rider.Camera_Aim": {
@@ -322,12 +382,12 @@
       "id": "gunner",
       "file": "gunner.glb",
       "scene": "Scene0",
-      "bytes": 118476,
-      "triangles": 1420,
-      "mesh_objects": 20,
+      "bytes": 196200,
+      "triangles": 2396,
+      "mesh_objects": 24,
       "bounds_min": [
         -0.2665,
-        -0.7925,
+        -0.8,
         -0.562
       ],
       "bounds_max": [
@@ -426,6 +486,21 @@
           "parent": "gunner.Hip_-1",
           "socket": false
         },
+        "gunner.Ankle_-1": {
+          "position": [
+            -0.185,
+            -0.72,
+            -0.005
+          ],
+          "rotation_xyzw": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "parent": "gunner.Knee_-1",
+          "socket": false
+        },
         "gunner.Shoulder_R": {
           "position": [
             0.17,
@@ -486,6 +561,21 @@
           "parent": "gunner.Hip_1",
           "socket": false
         },
+        "gunner.Ankle_1": {
+          "position": [
+            0.185,
+            -0.72,
+            -0.005
+          ],
+          "rotation_xyzw": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "parent": "gunner.Knee_1",
+          "socket": false
+        },
         "gunner.Camera_Aim": {
           "position": [
             0.0,
@@ -522,9 +612,9 @@
       "id": "launcher",
       "file": "launcher.glb",
       "scene": "Scene0",
-      "bytes": 66832,
-      "triangles": 1000,
-      "mesh_objects": 4,
+      "bytes": 75768,
+      "triangles": 1132,
+      "mesh_objects": 3,
       "bounds_min": [
         -0.103,
         -0.205,
@@ -532,7 +622,7 @@
       ],
       "bounds_max": [
         0.103,
-        0.1525,
+        0.206,
         0.34
       ],
       "nodes": {
@@ -607,7 +697,7 @@
       "id": "helicopter",
       "file": "helicopter.glb",
       "scene": "Scene0",
-      "bytes": 174688,
+      "bytes": 174720,
       "triangles": 2248,
       "mesh_objects": 27,
       "bounds_min": [
@@ -1015,7 +1105,7 @@
       ],
       "bounds_max": [
         2.1,
-        5.725,
+        6.625,
         0.85
       ],
       "nodes": {}
@@ -1154,6 +1244,71 @@
             0.965926
           ],
           "parent": "road_curve.Root",
+          "socket": true
+        }
+      }
+    },
+    {
+      "id": "shotgun",
+      "file": "shotgun.glb",
+      "scene": "Scene0",
+      "bytes": 55960,
+      "triangles": 668,
+      "mesh_objects": 8,
+      "bounds_min": [
+        -0.05,
+        -0.152,
+        -0.636
+      ],
+      "bounds_max": [
+        0.05,
+        0.0945,
+        0.5425
+      ],
+      "nodes": {
+        "shotgun.Pump": {
+          "position": [
+            0.0,
+            -0.029,
+            -0.25
+          ],
+          "rotation_xyzw": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "parent": "shotgun.Root",
+          "socket": false
+        },
+        "shotgun.Muzzle": {
+          "position": [
+            0.0,
+            0.026,
+            -0.65
+          ],
+          "rotation_xyzw": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "parent": "shotgun.Root",
+          "socket": true
+        },
+        "shotgun.Grip": {
+          "position": [
+            0.0,
+            -0.12,
+            0.135
+          ],
+          "rotation_xyzw": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "parent": "shotgun.Root",
           "socket": true
         }
       }

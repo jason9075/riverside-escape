@@ -198,7 +198,8 @@ def bicycle():
     torus("Chainring", (.10, 0, 0), .13, .014, "Steel", pedal)
     for x, z in [(.13, -.15), (-.13, .15)]:
         tube("Crank arm", (x, 0, 0), (x, 0, z), .020, "Steel", pedal)
-        cube("Pedal", (x * 1.65, 0, z), (.18, .11, .035), "Rubber", pedal, .01)
+        platform = empty("Pedal_R" if x > 0 else "Pedal_L", (x * 1.65, 0, z), pedal)
+        cube("Pedal", (0, 0, 0), (.18, .11, .035), "Rubber", platform, .01)
     for z in [-.11, .11]:
         tube("Chain", (.105, -1.08, .35 + z / 2), (.105, -.10, .35 + z), .01, "Dark", root, 6)
     sphere("Headlight", (0, .735, 1.0), (.065, .055, .06), "Cream", root)
@@ -250,13 +251,44 @@ def character(kind):
         tube("Forearm", (0, 0, 0), target, .048, "Skin", elbow, radius2=.036)
         sphere("Glove", target, (.052, .052, .050), "Dark", elbow, 8, 4)
         hip = empty("Hip_" + str(side), (side * .13, .025, 0), root)
-        knee_pos = (side * .045, .29, -.25)
-        foot_pos = (side * .055, .06, -.79 if side > 0 else -.49) if kind == "rider" else (side * .055, -.02, -.72)
-        tube("Thigh", (0, 0, 0), knee_pos, .088, "Dark", hip, radius2=.068)
-        knee = empty("Knee_" + str(side), knee_pos, hip)
-        target = Vector(foot_pos) - Vector(knee_pos)
-        tube("Trouser leg", (0, 0, 0), target, .060, "Dark", knee, radius2=.048)
-        cube("Shoe", target + Vector((0, .045, -.025)), (.125, .235, .095), "Cream", knee, .025)
+        if kind == "rider":
+            # Canonical down-axis bones, posed once for the source preview.
+            # Runtime two-bone IK keeps the feet on the moving pedal platforms.
+            upper, lower = .42, .43
+            tube("Thigh", (0, 0, 0), (0, 0, -upper), .082, "Dark", hip, radius2=.062)
+            knee = empty("Knee_" + str(side), (0, 0, -upper), hip)
+            tube("Trouser leg", (0, 0, 0), (0, 0, -lower + .06), .056, "Dark", knee, radius2=.041)
+            ankle = empty("Ankle_" + str(side), (0, 0, -lower), knee)
+            target = Vector((side * .2145, .13, .35 - side * .15 + .07 - 1.08)) - Vector(hip.location)
+            d = min(target.length, upper + lower - .001)
+            axis = target.normalized()
+            bend = (Vector((0, 1, 0)) - axis * axis.dot(Vector((0, 1, 0)))).normalized()
+            along = (upper * upper - lower * lower + d * d) / (2 * d)
+            joint = axis * along + bend * math.sqrt(max(0, upper * upper - along * along))
+            q1 = Vector((0, 0, -1)).rotation_difference(joint.normalized())
+            q2 = Vector((0, 0, -1)).rotation_difference((target - joint).normalized())
+            hip.rotation_mode = knee.rotation_mode = ankle.rotation_mode = "QUATERNION"
+            hip.rotation_quaternion = q1
+            knee.rotation_quaternion = q1.inverted() @ q2
+            ankle.rotation_quaternion = q2.inverted()
+        else:
+            knee_pos = (side * .045, .29, -.25)
+            foot_pos = (side * .055, -.02, -.72)
+            tube("Thigh", (0, 0, 0), knee_pos, .088, "Dark", hip, radius2=.068)
+            knee = empty("Knee_" + str(side), knee_pos, hip)
+            target = Vector(foot_pos) - Vector(knee_pos)
+            tube("Trouser leg", (0, 0, 0), target + Vector((0, 0, .05)), .060, "Dark", knee, radius2=.043)
+            ankle = empty("Ankle_" + str(side), target, knee)
+        # Exposed toes, white footbed, blue sole and white Y straps.
+        cube("Blue sandal sole", (0, .04, -.065), (.135, .26, .03), "SandalBlue", ankle, .022)
+        cube("White footbed", (0, .04, -.046), (.127, .252, .014), "SandalWhite", ankle, .02)
+        sphere("Bare foot", (0, .012, -.013), (.052, .089, .032), "Skin", ankle)
+        for toe in range(5):
+            sphere("Toe", (-.041 + toe * .020, .098 + .011 * (1 - toe / 4), -.019),
+                   (.011, .024 - toe * .002, .014), "Skin", ankle, 8, 4)
+        for side_x in [-1, 1]:
+            tube("White sandal strap", (0, .081, .005), (side_x * .057, -.031, .010), .013, "SandalWhite", ankle, 8)
+        tube("Blue toe post", (0, .081, -.035), (0, .081, .009), .009, "SandalBlue", ankle, 8)
     empty("Camera_Aim", (0, .09, .72), root, True)
     if kind == "gunner":
         empty("WeaponMount", (.255, .30, .43), torso, True)
@@ -270,12 +302,40 @@ def launcher():
     for y in [-.30, .30]:
         torus("Reinforced collar", (0, y, 0), .085, .018, "Dark", root, "Y")
     tube("Dark bore", (0, .371, 0), (0, .377, 0), .064, "Dark", root, 12)
-    cube("Orange sight", (0, .05, .12), (.10, .19, .065), "Orange", root, .015)
-    cube("Scope lens", (0, .148, .12), (.065, .008, .036), "Glass", root)
+    # Open sight: opaque geometry must not block the ADS centerline.
+    for x in [-.052, .052]:
+        cube("Sight upright", (x, .05, .15), (.012, .065, .10), "Orange", root, .003)
+    for z in [.10, .20]:
+        cube("Sight crossbar", (0, .05, z), (.116, .065, .012), "Orange", root, .003)
+    cube("Sight mount", (0, .05, .087), (.035, .065, .028), "Dark", root)
     cube("Grip", (0, .04, -.12), (.065, .10, .17), "Dark", root, .012)
     cube("Rear pad", (0, -.19, -.10), (.12, .16, .08), "Dark", root, .012)
     empty("Muzzle", (0, .40, 0), root, True)
     empty("Grip", (0, .04, -.18), root, True)
+
+
+def shotgun():
+    root = begin("shotgun")
+    # Fictional pump shotgun; +Y muzzle direction becomes glTF -Z.
+    cube("Receiver", (0, -.06, 0), (.085, .30, .105), "Navy", root, .012)
+    cube("Stock", (0, -.36, -.025), (.075, .32, .13), "Wood", root, .025)
+    cube("Recoil pad", (0, -.53, -.026), (.08, .025, .14), "Rubber", root, .008)
+    tube("Barrel", (0, .06, .026), (0, .63, .026), .026, "Steel", root, 12)
+    tube("Muzzle bore", (0, .632, .026), (0, .636, .026), .019, "Dark", root, 12)
+    tube("Magazine tube", (0, .07, -.035), (0, .48, -.035), .023, "Navy", root, 10)
+    pump = empty("Pump", (0, .25, -.029), root)
+    cube("Pump grip", (0, 0, 0), (.095, .23, .082), "Wood", pump, .012)
+    for y in [-.075, -.04, -.005, .03, .065]:
+        cube("Pump rib", (0, y, 0), (.100, .011, .086), "Dark", pump, .003)
+    cube("Pistol grip", (0, -.135, -.092), (.066, .088, .12), "Wood", root, .014)
+    tube("Trigger guard", (-.025, -.085, -.045), (-.025, -.015, -.102), .007, "Steel", root, 8)
+    tube("Trigger guard", (-.025, -.015, -.102), (-.025, -.12, -.12), .007, "Steel", root, 8)
+    cube("Ejection port", (.044, -.024, .005), (.004, .105, .046), "Dark", root)
+    for x in [-.022, .022]:
+        cube("Rear sight", (x, -.16, .077), (.009, .025, .035), "Dark", root)
+    cube("Front sight", (0, .54, .075), (.008, .021, .027), "SandalWhite", root)
+    empty("Muzzle", (0, .65, .026), root, True)
+    empty("Grip", (0, -.135, -.12), root, True)
 
 
 def projectile():
@@ -397,7 +457,7 @@ def props():
     root = begin("bridge_pier")
     cube("Footing", (0, 0, .15), (2.1, 1.7, .30), "Concrete", root, .06)
     cube("Column", (0, 0, 2.8), (1.15, 1.05, 5.30), "Concrete", root, .12)
-    cube("Top cap", (0, 0, 5.40), (4.2, 1.50, .65), "Concrete", root, .08)
+    cube("Top cap", (0, 0, 6.30), (4.2, 1.50, .65), "Concrete", root, .08)
     for x in [-.41, 0, .41]:
         cube("Safety marker", (x, .535, .85), (.19, .022, .65), "Orange", root)
 
@@ -624,8 +684,8 @@ def previews(enabled):
     camera(scene, (15, 17, 14), (0, .5, 1.0), 18.5)
     render(scene, "riverside_kit.png", enabled)
 
-    scene = setup_scene("04 - Model catalog", (2000, 1400))
-    camera(scene, (8, 12, 9), (0, 0, 0), 19.5)
+    scene = setup_scene("04 - Model catalog", (2000, 1800))
+    camera(scene, (8, 12, 9), (0, 0, 0), 21.5)
     q = scene.camera.rotation_euler.to_quaternion()
     right, up, toward = q @ Vector((1, 0, 0)), q @ Vector((0, 1, 0)), q @ Vector((0, 0, 1))
     # Unlit ink and paper keep typography clear regardless of studio lighting.
@@ -651,10 +711,10 @@ def previews(enabled):
         obj.rotation_euler = scene.camera.rotation_euler
 
     label("R I V E R S I D E   E S C A P E", 0, 5.95, .39)
-    label("MODEL KIT 01  /  LOW POLY  /  15 MODULAR ASSETS", 0, 5.40, .18)
+    label("MODEL KIT 01  /  LOW POLY  /  16 MODULAR ASSETS", 0, 6.30, .18)
     labels = ["BICYCLE", "RIDER", "GUNNER", "LAUNCHER", "MISSILE", "HELICOPTER",
               "TRAFFIC CONE", "BOLLARD", "CONCRETE BARRIER", "RAILING", "BRIDGE PIER",
-              "RIVERSIDE TREE", "RIVERSIDE LAMP", "STRAIGHT ROAD", "30 DEGREE CURVE"]
+              "RIVERSIDE TREE", "RIVERSIDE LAMP", "STRAIGHT ROAD", "30 DEGREE CURVE", "SHOTGUN"]
     for i, (name, (col, _)) in enumerate(ASSETS.items()):
         bpy.context.view_layer.update()
         points = [o.matrix_world @ Vector(p) for o in col.objects if o.type == "MESH" for p in o.bound_box]
@@ -664,11 +724,11 @@ def previews(enabled):
         size = min(2.45 / (high.x - low.x), 1.9 / (high.y - low.y))
         middle = (low + high) * .5
         asset_center = right * middle.x + up * middle.y + toward * middle.z
-        x, y = (i % 5 - 2) * 3.7, 3.6 - (i // 5) * 3.65
+        x, y = (i % 4 - 1.5) * 4.1, 4.6 - (i // 4) * 3.3
         center = right * x + up * y
         instance(name, center - asset_center * size, scale=size)
         label(f"{i + 1:02d}  {labels[i]}", x, y - 1.40, .18)
-    label("METRE SCALE  /  PBR COLOURS  /  GLB + BLENDER SOURCES", 0, -5.98, .16)
+    label("METRE SCALE  /  PBR COLOURS  /  GLB + BLENDER SOURCES", 0, -7.05, .16)
     render(scene, "model_catalog.png", enabled)
 
 
@@ -687,6 +747,7 @@ def main():
         ("Cream", (.92, .86, .69), 0, .65), ("Dark", (.023, .047, .060), .1, .7),
         ("Rubber", (.017, .023, .028), 0, .95), ("Steel", (.32, .44, .47), .7, .30),
         ("Navy", (.045, .095, .115), .35, .42), ("Glass", (.055, .24, .30), .48, .19),
+        ("SandalBlue", (.025, .18, .70), 0, .8), ("SandalWhite", (.97, .98, 1.0), 0, .8),
         ("Skin", (.65, .36, .22), 0, .75), ("Red", (.65, .028, .018), 0, .45),
         ("Concrete", (.49, .55, .53), 0, .9), ("Wood", (.24, .14, .075), 0, .95),
         ("Leaf", (.12, .34, .22), 0, 1), ("LeafLight", (.24, .46, .27), 0, 1),
@@ -705,6 +766,7 @@ def main():
     helicopter()
     props()
     roads()
+    shotgun()
     export_all()
     previews(options.render or bool(RENDER_ONLY))
     # Show each editable source in its own bay, after origin-correct exports.

@@ -10,7 +10,7 @@
 ## 交付檔案
 
 - `riverside_models.blend`：Blender 5.2 原始檔。切換 Scene 可檢視模型庫、共乘組裝、直升機、河濱示意場景及模型目錄。
-- `../assets/models/*.glb`：15 個獨立 glTF 2.0 模型，每個檔案只有自己的模型、材質與節點。
+- `../assets/models/*.glb`：16 個獨立 glTF 2.0 模型，每個檔案只有自己的模型、材質與節點。
 - `../assets/models/manifest.json`：實際三角形數、大小、包圍盒與掛點。掛點位置及四元數為 **asset-local、glTF 座標**；`parent` 表示實際節點父子關係，不能把這些 asset-local 數值當成 parent-local 使用。
 - `previews/`：由 Blender 渲染的組裝預覽，不是遊戲執行畫面。
 - `validation/`：Khronos glTF Validator 與 Blender 匯入回讀驗證報告。
@@ -21,6 +21,7 @@
 | `rider.glb` | 青綠外套騎士，坐姿；原點為骨盆／座位接點 |
 | `gunner.glb` | 橘色外套射手，坐姿；原點為骨盆／座位接點 |
 | `launcher.glb` | 虛構遊戲鎖定發射器；原點為筒身中心 |
+| `shotgun.glb` | 遊戲化泵動霰彈槍；含泵柄、瞄具與槍口掛點 |
 | `missile.glb` | 遊戲化投射物；原點為彈體中心，附尾焰掛點 |
 | `helicopter.glb` | 追擊直升機；原點在滑橇接地高度 |
 | `traffic_cone.glb` | 交通錐，底部原點 |
@@ -52,6 +53,9 @@
 | `bicycle.Steering` | Y 軸轉向，前叉、把手與前輪會一起轉動 |
 | `bicycle.WheelFront` / `WheelRear` | X 軸轉動；輪半徑約 0.349 m |
 | `bicycle.Crank` | X 軸踏板曲柄 |
+| `bicycle.Pedal_L` / `Pedal_R` | X 軸反向旋轉，保持踏板水平 |
+| `rider.Hip_±1` / `Knee_±1` / `Ankle_±1` | 程序式雙節腿部 IK，腳掌貼合踏板 |
+| `shotgun.Pump` / `Muzzle` | 泵柄退殼動作／槍口掛點 |
 | `bicycle.Seat_Rider` / `Seat_Gunner` | 分別為騎士／射手掛點 |
 | `rider.Camera_Aim` / `gunner.Camera_Aim` | 視線參考位置；鏡頭的平滑與穩定由遊戲邏輯決定 |
 | `gunner.Torso` | 可獨立旋轉上半身；武器掛點隨之轉動 |
@@ -63,15 +67,17 @@
 | `helicopter.TargetLock` / `Muzzle` | 鎖定目標中心／機鼻砲口 |
 | `road_*.Entry` / `Exit` | 沿出口的完整 transform 拼接下一段入口，包含彎道出口方向 |
 
-角色為可修改坐姿的**剛性分節模型**，保留肩、肘、髖、膝與頭部節點；目前沒有蒙皮骨架、IK、踩踏或受擊動畫片段。
-旋翼與輪子同樣保留轉軸，供之後程式控制。碰撞體、碰撞資料、傷害與武器行為尚未實作。
+角色為可修改坐姿的**剛性分節模型**，兩人均穿藍白拖鞋。沒有蒙皮骨架或預烘焙動畫片段；
+`crates/client/src/animation.rs` 在執行時驅動輪子、曲柄、踏板與 Rider 髖／膝／踝的 IK，
+踩踏時雙腳交替、滑行時停踩但車輪繼續轉動。直升機有主／尾旋翼旋轉與機身輕微俯仰、側傾。
+武器具備第一／第三人稱模型、ADS 過渡、後座力、槍口閃光與霰彈槍泵柄動作；命中與傷害由 Server 判定。
 
 ![直升機](previews/helicopter.png)
 
 ## 遊戲整合
 
 Bevy `AssetServer` 的模型路徑可使用 `models/bicycle.glb#Scene0`（其他檔案同理）。
-目前只交付素材，沒有修改 Rust app 去生成場景。
+遊戲已透過 Bevy 載入模型；槍枝隨 1／2 鍵切換，右鍵按住 ADS。
 從 workspace 根目錄啟動原生 client 時使用 `BEVY_ASSET_ROOT="$PWD" cargo run -p riverside-client`。
 `web/index.html` 已加入 Trunk 的 `copy-dir`，下一次建置會把 GLB 複製到 `dist/assets/models/`。
 
@@ -80,10 +86,28 @@ Bevy `AssetServer` 的模型路徑可使用 `models/bicycle.glb#Scene0`（其他
 同父節點及材質的靜態幾何會合併；需要動作的節點則保留。
 目前只有一級模型，沒有額外 LOD、碰撞 mesh 或 Draco／Meshopt 壓縮。
 
-格式與匯入回讀已驗證；Bevy／瀏覽器內的實際光照、剔除、動畫和效能仍需在場景接入時驗證。
+16 個模型均通過格式與 Blender 匯入回讀驗證；瀏覽器驗證紀錄見 `docs/verification/weapons/`。
 匯出方式參考 [Blender 官方 glTF 說明](https://docs.blender.org/manual/en/5.1/addons/import_export/scene_gltf2.html)。
 
 ![河濱模組示意](previews/riverside_kit.png)
+
+## 遊戲中的河濱景觀
+
+遊戲場景的程序式景觀位於 `../crates/client/src/scenery.rs`，包含灰色瀝青自行車道、
+草坪與堤坡、河水與蘆葦、闊葉樹、路燈、座椅，以及對岸城市與山丘。
+道路與標線直接取樣 `riverside-common` 的共用路線，維持 4 m 路寬；
+細欄杆維持原本左右 2.55 m 的邊界位置。橋面、橋墩及障礙物仍由原有共用資料生成。
+這些景觀只在 Client 建立，不新增 Server 碰撞體或更動玩法。
+
+配色與空間配置以台北河濱公園的開闊草地、河岸與城市遠景為方向。
+使用者提供的 Google 街景位置為 `25.073222, 121.5581397`；本次影像端點回傳 403，
+未能核對全景，因此這版是風格化景觀改善，不是該視角的地理重建，也未使用 Google 圖片作為素材。
+原有 Blender 模型庫與上方預覽仍保留，不代表最新遊戲場景。
+
+![遊戲中的河岸與城市遠景](../docs/verification/scenery/river-look.png)
+
+[車手畫面](../docs/verification/scenery/rider.png)・[射手畫面](../docs/verification/scenery/gunner.png)・[驗證紀錄](../docs/verification/scenery/smoke-report.json)。
+畫面為 Chrome WebGL2／SwiftShader 的離線預覽，擷取時只隱藏大廳遮罩；不代表硬體 GPU 效能測試。
 
 ## 重建與驗證
 
